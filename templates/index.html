@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCIAC Lineup Tool</title>
+<style>
+/* ── Reset + base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #f0f2f5; color: #1a1a2e; font-size: 14px; }
+button { cursor: pointer; font: inherit; }
+input, select { font: inherit; }
+
+/* ── Header ── */
+#header {
+  background: #1a1a2e;
+  color: #fff;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 56px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+#header h1 { font-size: 18px; font-weight: 700; letter-spacing: .5px; white-space: nowrap; }
+#header .spacer { flex: 1; }
+
+/* Gender toggle */
+.gender-toggle { display: flex; border-radius: 6px; overflow: hidden; border: 1px solid #444; }
+.gender-toggle button {
+  background: transparent;
+  color: #ccc;
+  border: none;
+  padding: 5px 14px;
+  font-size: 13px;
+  transition: background .15s, color .15s;
+}
+.gender-toggle button.active { background: #4f8ef7; color: #fff; }
+
+/* Season input */
+#season-input {
+  background: #2a2a3e;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  width: 90px;
+  font-size: 13px;
+}
+
+/* Step breadcrumb */
+.breadcrumb { display: flex; gap: 0; }
+.breadcrumb .crumb {
+  padding: 6px 16px;
+  font-size: 12px;
+  color: #888;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.breadcrumb .crumb:hover { color: #ccc; }
+.breadcrumb .crumb.active { color: #4f8ef7; border-bottom-color: #4f8ef7; }
+
+/* ── Main layout ── */
+#main { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+
+/* ── Step panels ── */
+.step { display: none; }
+.step.active { display: block; }
+
+/* ── Cards ── */
+.card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: #1a1a2e;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  transition: opacity .15s, background .15s;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: #4f8ef7; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #3a7ae0; }
+.btn-success { background: #22c55e; color: #fff; }
+.btn-success:hover:not(:disabled) { background: #16a34a; }
+.btn-secondary { background: #e5e7eb; color: #374151; }
+.btn-secondary:hover:not(:disabled) { background: #d1d5db; }
+.btn-danger { background: #ef4444; color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #dc2626; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* ── Date row ── */
+.date-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.date-row label { font-size: 12px; color: #6b7280; }
+.date-row input[type=date] {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: #fafafa;
+}
+
+/* ── Log panel ── */
+#log-panel {
+  background: #0f1117;
+  color: #a8f0b8;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 200px;
+  max-height: 380px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+#log-panel .log-error { color: #f87171; }
+#log-panel .log-warn  { color: #fbbf24; }
+#log-panel .log-done  { color: #34d399; font-weight: bold; }
+
+/* ── Tabs ── */
+.tabs { display: flex; border-bottom: 2px solid #e5e7eb; margin-bottom: 16px; }
+.tab-btn {
+  background: transparent;
+  border: none;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn.active { color: #4f8ef7; border-bottom-color: #4f8ef7; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Quality issues ── */
+.issue-group {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.issue-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: #fafafa;
+  user-select: none;
+}
+.issue-header:hover { background: #f0f2f5; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fee2e2;
+  color: #991b1b;
+}
+.badge.warn { background: #fef3c7; color: #92400e; }
+.badge.info { background: #dbeafe; color: #1e40af; }
+.issue-body { padding: 0 14px 10px; display: none; }
+.issue-body.open { display: block; }
+.issue-item {
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid #f3f4f6;
+  line-height: 1.5;
+}
+.issue-item:last-child { border-bottom: none; }
+.chevron { font-size: 10px; margin-left: auto; color: #9ca3af; }
+
+/* ── Best times table ── */
+.filter-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+.filter-row select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: #fafafa;
+  font-size: 13px;
+  min-width: 160px;
+}
+.filter-row input[type=text] {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: #fafafa;
+  font-size: 13px;
+  width: 200px;
+}
+.export-row { display: flex; gap: 8px; margin-bottom: 14px; }
+
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  background: #f8fafc;
+  border-bottom: 2px solid #e5e7eb;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+}
+tbody tr:hover { background: #f8fafc; }
+tbody tr.edited-row { background: #fef9c3; }
+td { padding: 7px 10px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
+td.time-cell { font-family: monospace; }
+.edit-btn {
+  background: transparent;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: #6b7280;
+}
+.edit-btn:hover { border-color: #4f8ef7; color: #4f8ef7; }
+.inline-edit {
+  width: 90px;
+  border: 1px solid #4f8ef7;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: monospace;
+  font-size: 13px;
+  background: #eff6ff;
+}
+
+/* ── Model step ── */
+.placeholder-banner {
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.placeholder-banner .icon { font-size: 22px; }
+
+.param-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.param-row label { width: 180px; font-size: 13px; color: #374151; flex-shrink: 0; }
+.param-row input[type=range] { width: 160px; }
+.param-row input[type=number], .param-row input[type=text] {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 10px;
+  width: 80px;
+  font-size: 13px;
+}
+.param-val { width: 50px; text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+
+details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bottom: 10px; }
+
+/* ── Skeleton table ── */
+.skeleton-row td { height: 28px; }
+.skel { background: linear-gradient(90deg, #f0f2f5 25%, #e5e7eb 50%, #f0f2f5 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 4px; height: 14px; display: block; }
+@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+/* ── Utility ── */
+.mt8 { margin-top: 8px; }
+.flex-gap { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.text-muted { color: #9ca3af; font-size: 12px; }
+.text-success { color: #16a34a; }
+.text-error { color: #dc2626; }
+#parse-status { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ╔══════════════════════════════════════════════════════════════╗
+     ║  HEADER                                                      ║
+     ╚══════════════════════════════════════════════════════════════╝ -->
+<div id="header">
+  <h1>🏊 SCIAC Lineup Tool</h1>
+  <div class="spacer"></div>
+
+  <div class="gender-toggle">
+    <button id="btn-men"   class="active" onclick="setGender('Men')">Men</button>
+    <button id="btn-women"            onclick="setGender('Women')">Women</button>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:6px;">
+    <label for="season-input" style="font-size:12px;color:#aaa;">Season</label>
+    <input id="season-input" type="text" value="2025-26" placeholder="YYYY-YY"
+           oninput="onSeasonChange()" autocomplete="off">
+  </div>
+
+  <nav class="breadcrumb">
+    <div class="crumb active" data-step="1" onclick="goStep(1)">1 · Scrape</div>
+    <div class="crumb"        data-step="2" onclick="goStep(2)">2 · Review</div>
+    <div class="crumb"        data-step="3" onclick="goStep(3)">3 · Model</div>
+    <div class="crumb"        data-step="4" onclick="goStep(4)">4 · Lineup</div>
+  </nav>
+</div>
+
+<!-- ╔══════════════════════════════════════════════════════════════╗
+     ║  MAIN CONTENT                                                ║
+     ╚══════════════════════════════════════════════════════════════╝ -->
+<div id="main">
+
+  <!-- ─── STEP 1: Scrape ─── -->
+  <section id="step1" class="step active">
+    <div class="card">
+      <div class="card-title">Step 1 — Scrape &amp; Parse</div>
+
+      <div class="date-row">
+        <label>Start date</label>
+        <input type="date" id="start-date" value="2025-09-01">
+        <label>End date</label>
+        <input type="date" id="end-date" value="2026-04-30">
+      </div>
+
+      <div class="flex-gap mt8">
+        <button class="btn btn-primary" id="btn-scrape" onclick="doScrape()">
+          ▶ Scrape Data
+        </button>
+        <button class="btn btn-success" id="btn-parse" onclick="doParse()">
+          ⚙ Parse Data
+        </button>
+        <span id="parse-status" class="text-muted"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span class="card-title" style="margin:0">Output Log</span>
+        <button class="btn btn-secondary btn-sm" onclick="clearLog()">Clear</button>
+      </div>
+      <div id="log-panel">Waiting for scrape / parse…</div>
+    </div>
+
+    <div style="text-align:right;">
+      <button class="btn btn-primary" id="btn-continue1" disabled onclick="goStep(2)">
+        Continue → Review &amp; Edit
+      </button>
+    </div>
+  </section>
+
+  <!-- ─── STEP 2: Review & Edit ─── -->
+  <section id="step2" class="step">
+    <div class="card">
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('quality')">Data Quality</button>
+        <button class="tab-btn"        onclick="switchTab('best-times')">Best Times</button>
+      </div>
+
+      <!-- Data Quality tab -->
+      <div id="tab-quality" class="tab-content active">
+        <div class="flex-gap" style="margin-bottom:14px;">
+          <button class="btn btn-secondary btn-sm" onclick="loadQuality()">↻ Refresh</button>
+          <span id="quality-summary" class="text-muted"></span>
+        </div>
+        <div id="quality-issues">
+          <p class="text-muted">Click Refresh to load data quality report.</p>
+        </div>
+      </div>
+
+      <!-- Best Times tab -->
+      <div id="tab-best-times" class="tab-content">
+        <div class="filter-row">
+          <input type="text"  id="filter-name"   placeholder="Search athlete…" oninput="filterTable()">
+          <select id="filter-school" onchange="filterTable()"><option value="">All schools</option></select>
+          <select id="filter-event"  onchange="filterTable()"><option value="">All events</option></select>
+        </div>
+        <div class="export-row">
+          <button class="btn btn-secondary btn-sm" onclick="loadAthletes()">↻ Refresh</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportFile('csv')">⬇ Export CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportFile('json')">⬇ Export JSON</button>
+          <span id="athletes-summary" class="text-muted"></span>
+        </div>
+        <div class="tbl-wrap">
+          <table id="athletes-table">
+            <thead>
+              <tr>
+                <th>Athlete</th>
+                <th>School</th>
+                <th>Yr</th>
+                <th>Event</th>
+                <th>Best Time</th>
+                <th>Meet</th>
+                <th>Date</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="athletes-tbody">
+              <tr><td colspan="8" class="text-muted" style="padding:20px;text-align:center;">
+                Click Refresh to load best performances.
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;">
+      <button class="btn btn-secondary" onclick="goStep(1)">← Back</button>
+      <button class="btn btn-primary"   onclick="goStep(3)">Continue → Model</button>
+    </div>
+  </section>
+
+  <!-- ─── STEP 3: Model ─── -->
+  <section id="step3" class="step">
+    <div class="placeholder-banner">
+      <span class="icon">🔧</span>
+      <span><strong>Model not yet configured</strong> — drop in amplpy integration here (app.py <code>/api/model/run</code>)</span>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Model Parameters</div>
+
+      <div class="param-row">
+        <label>Fatigue penalty</label>
+        <input type="range" id="fatigue-slider" min="0" max="2" step="0.05" value="0.5"
+               oninput="document.getElementById('fatigue-val').textContent=this.value">
+        <span class="param-val" id="fatigue-val">0.5</span>
+        <input type="number" id="fatigue-num" min="0" max="2" step="0.05" value="0.5"
+               oninput="document.getElementById('fatigue-slider').value=this.value;document.getElementById('fatigue-val').textContent=this.value">
+      </div>
+
+      <div class="param-row">
+        <label>Max events per athlete</label>
+        <input type="number" id="max-events" min="1" max="6" step="1" value="3" style="width:80px;">
+      </div>
+
+      <details>
+        <summary>Additional parameters</summary>
+        <div class="param-row" style="margin-top:10px;">
+          <label>Scoring system</label>
+          <select style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;font-size:13px;background:#fafafa;">
+            <option>NCAA D3 (standard)</option>
+            <option>Custom</option>
+          </select>
+        </div>
+        <div class="param-row">
+          <label>Min relay coverage</label>
+          <input type="number" id="min-relay" min="0" max="10" step="1" value="4" style="width:80px;">
+        </div>
+        <div class="param-row">
+          <label>Enforce dive entry</label>
+          <select style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;font-size:13px;background:#fafafa;">
+            <option>Yes</option>
+            <option>No</option>
+          </select>
+        </div>
+      </details>
+
+      <div class="flex-gap mt8" style="margin-top:18px;">
+        <button class="btn btn-primary" id="btn-run-model" onclick="runModel()">▶ Run Model</button>
+        <span id="model-status" class="text-muted"></span>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;">
+      <button class="btn btn-secondary" onclick="goStep(2)">← Back</button>
+      <button class="btn btn-primary"   onclick="goStep(4)">Continue → Lineup</button>
+    </div>
+  </section>
+
+  <!-- ─── STEP 4: Lineup ─── -->
+  <section id="step4" class="step">
+    <div class="placeholder-banner">
+      <span class="icon">📋</span>
+      <span><strong>Lineup output will appear here after model is integrated</strong></span>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Proposed Lineup</div>
+      <div class="export-row">
+        <button class="btn btn-secondary btn-sm" disabled>⬇ Export CSV</button>
+        <button class="btn btn-secondary btn-sm" disabled>⬇ Export PDF</button>
+        <span class="text-muted">Exports available after model run</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Athlete</th>
+              <th>School</th>
+              <th>Seed Time</th>
+              <th>Slot</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Skeleton rows -->
+            <tr class="skeleton-row"><td><div class="skel" style="width:160px"></div></td><td><div class="skel" style="width:120px"></div></td><td><div class="skel" style="width:100px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
+            <tr class="skeleton-row"><td><div class="skel" style="width:140px"></div></td><td><div class="skel" style="width:110px"></div></td><td><div class="skel" style="width:80px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
+            <tr class="skeleton-row"><td><div class="skel" style="width:180px"></div></td><td><div class="skel" style="width:130px"></div></td><td><div class="skel" style="width:90px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
+            <tr class="skeleton-row"><td><div class="skel" style="width:150px"></div></td><td><div class="skel" style="width:100px"></div></td><td><div class="skel" style="width:110px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
+            <tr class="skeleton-row"><td><div class="skel" style="width:165px"></div></td><td><div class="skel" style="width:125px"></div></td><td><div class="skel" style="width:95px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <button class="btn btn-secondary" onclick="goStep(3)">← Back</button>
+    </div>
+  </section>
+
+</div><!-- #main -->
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let currentGender = 'Men';
+let currentSeason = '2025-26';
+let currentStep   = 1;
+let athletesData  = [];  // full unfiltered rows from /api/athletes
+
+// ============================================================
+// Navigation helpers
+// ============================================================
+function goStep(n) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.crumb').forEach(c => c.classList.remove('active'));
+  document.getElementById('step' + n).classList.add('active');
+  document.querySelector('[data-step="' + n + '"]').classList.add('active');
+  currentStep = n;
+  if (n === 2) {
+    // lazy-load quality on first visit
+    if (!document.getElementById('quality-issues').querySelector('.issue-group')) {
+      loadQuality();
+    }
+  }
+}
+
+function setGender(g) {
+  currentGender = g;
+  document.getElementById('btn-men').classList.toggle('active', g === 'Men');
+  document.getElementById('btn-women').classList.toggle('active', g === 'Women');
+  // Refresh data if on step 2
+  if (currentStep === 2) {
+    loadQuality();
+    loadAthletes();
+  }
+}
+
+function onSeasonChange() {
+  currentSeason = document.getElementById('season-input').value.trim();
+  // Update default start/end dates
+  const m = currentSeason.match(/^(\d{4})-(\d{2})$/);
+  if (m) {
+    const sy = parseInt(m[1]);
+    const ey = sy + 1;
+    document.getElementById('start-date').value = `${sy}-09-01`;
+    document.getElementById('end-date').value   = `${ey}-04-30`;
+  }
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    b.classList.toggle('active', (i === 0 && name==='quality') || (i===1 && name==='best-times'));
+  });
+  document.getElementById('tab-quality').classList.toggle('active', name==='quality');
+  document.getElementById('tab-best-times').classList.toggle('active', name==='best-times');
+  if (name === 'best-times' && athletesData.length === 0) loadAthletes();
+}
+
+// ============================================================
+// Log panel
+// ============================================================
+const logPanel = document.getElementById('log-panel');
+
+function appendLog(line, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = line + '\n';
+  // First call clears placeholder
+  if (logPanel.dataset.fresh !== 'true') {
+    logPanel.textContent = '';
+    logPanel.dataset.fresh = 'true';
+  }
+  logPanel.appendChild(span);
+  logPanel.scrollTop = logPanel.scrollHeight;
+}
+
+function clearLog() {
+  logPanel.textContent = 'Log cleared.\n';
+  logPanel.dataset.fresh = 'true';
+}
+
+function classifyLine(line) {
+  const l = line.toLowerCase();
+  if (l.includes('error') || l.includes('traceback')) return 'log-error';
+  if (l.includes('warning') || l.includes('warn'))    return 'log-warn';
+  return null;
+}
+
+// ============================================================
+// SSE streaming helper
+// ============================================================
+async function streamSSE(url, payload, onDone) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    appendLog('HTTP ' + resp.status + ': ' + txt, 'log-error');
+    if (onDone) onDone(false);
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, {stream: true});
+    const parts = buf.split('\n\n');
+    buf = parts.pop();
+    for (const part of parts) {
+      if (!part.startsWith('data: ')) continue;
+      const line = part.slice(6);
+      if (line === '__DONE__') {
+        appendLog('✓ Done.', 'log-done');
+        if (onDone) onDone(true);
+        return;
+      }
+      appendLog(line, classifyLine(line));
+    }
+  }
+  if (onDone) onDone(false);
+}
+
+// ============================================================
+// Step 1 — Scrape / Parse
+// ============================================================
+function doScrape() {
+  const btn = document.getElementById('btn-scrape');
+  btn.disabled = true;
+  document.getElementById('parse-status').textContent = '';
+  appendLog('--- Starting scrape ---');
+  streamSSE('/api/scrape', {
+    season: currentSeason,
+    gender: currentGender,
+    start:  document.getElementById('start-date').value,
+    end:    document.getElementById('end-date').value,
+  }, (ok) => {
+    btn.disabled = false;
+    document.getElementById('parse-status').textContent = ok ? '✓ Scrape complete' : '✗ Scrape error';
+  });
+}
+
+function doParse() {
+  const btn = document.getElementById('btn-parse');
+  btn.disabled = true;
+  document.getElementById('parse-status').textContent = '';
+  appendLog('--- Starting parse pipeline ---');
+  streamSSE('/api/parse', {
+    season: currentSeason,
+    gender: currentGender,
+  }, (ok) => {
+    btn.disabled = false;
+    const status = document.getElementById('parse-status');
+    if (ok) {
+      status.textContent = '✓ Parse complete';
+      status.className   = 'text-success';
+      document.getElementById('btn-continue1').disabled = false;
+    } else {
+      status.textContent = '✗ Parse error — check log';
+      status.className   = 'text-error';
+    }
+  });
+}
+
+// ============================================================
+// Step 2 — Data Quality
+// ============================================================
+async function loadQuality() {
+  const el = document.getElementById('quality-issues');
+  const sumEl = document.getElementById('quality-summary');
+  el.innerHTML = '<p class="text-muted">Loading…</p>';
+  sumEl.textContent = '';
+
+  const resp = await fetch(`/api/quality?season=${encodeURIComponent(currentSeason)}&gender=${currentGender}`);
+  if (!resp.ok) {
+    const j = await resp.json().catch(() => ({error: 'Unknown error'}));
+    el.innerHTML = `<p class="text-error">${j.error || resp.statusText}</p>`;
+    return;
+  }
+  const issues = await resp.json();
+  const categories = Object.keys(issues);
+  const total = categories.reduce((s, k) => s + issues[k].length, 0);
+  sumEl.textContent = `${total} issue(s) across ${categories.length} categories`;
+
+  if (total === 0) {
+    el.innerHTML = '<p class="text-success">✓ No issues found.</p>';
+    return;
+  }
+
+  const BADGES = {
+    suspect_times:          ['error', 'Suspect Times'],
+    suspect_dive_scores:    ['warn',  'Suspect Dive Scores'],
+    near_duplicate_names:   ['warn',  'Near-Duplicate Names'],
+    case_variant_names:     ['info',  'Case Variants'],
+    missing_first_name:     ['warn',  'Missing First Name'],
+    residual_name_suffixes: ['info',  'Residual Suffixes'],
+  };
+
+  let html = '';
+  for (const cat of categories) {
+    const items = issues[cat];
+    if (!items || items.length === 0) continue;
+    const [badgeClass, label] = BADGES[cat] || ['info', cat.replace(/_/g,' ')];
+    const preview = items.slice(0, 25);
+    html += `
+    <div class="issue-group">
+      <div class="issue-header" onclick="toggleIssue(this)">
+        <span class="badge ${badgeClass}">${items.length}</span>
+        <span>${label.replace(/\b\w/g, c=>c.toUpperCase())}</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="issue-body">
+        ${preview.map(item => `<div class="issue-item">${renderIssueItem(cat, item)}</div>`).join('')}
+        ${items.length > 25 ? `<div class="text-muted" style="padding:4px 0">…and ${items.length-25} more</div>` : ''}
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderIssueItem(cat, item) {
+  if (Array.isArray(item)) return item.join(' / ');
+  if (cat === 'near_duplicate_names')
+    return `<strong>${esc(item.name_a)}</strong> ↔ <strong>${esc(item.name_b)}</strong> (sim ${item.similarity})`;
+  if (cat === 'suspect_times')
+    return `<strong>${esc(item.name)}</strong> — ${esc(item.event)}: <code>${esc(item.finals)}</code> — <em>${esc(item.reason)}</em>`;
+  const parts = Object.entries(item).map(([k,v]) => `<span class="text-muted">${k}:</span> ${esc(String(v))}`);
+  return parts.join('  ');
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toggleIssue(header) {
+  const body = header.nextElementSibling;
+  const chev = header.querySelector('.chevron');
+  body.classList.toggle('open');
+  chev.textContent = body.classList.contains('open') ? '▼' : '▶';
+}
+
+// ============================================================
+// Step 2 — Best Times table
+// ============================================================
+async function loadAthletes() {
+  const tbody = document.getElementById('athletes-tbody');
+  const sumEl = document.getElementById('athletes-summary');
+  tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center;padding:20px">Loading…</td></tr>';
+  sumEl.textContent = '';
+
+  const resp = await fetch(
+    `/api/athletes?season=${encodeURIComponent(currentSeason)}&gender=${encodeURIComponent(currentGender)}`
+  );
+  if (!resp.ok) {
+    const j = await resp.json().catch(()=>({error:'Unknown error'}));
+    tbody.innerHTML = `<tr><td colspan="8" class="text-error" style="padding:20px">${j.error || resp.statusText}</td></tr>`;
+    return;
+  }
+  athletesData = await resp.json();
+  sumEl.textContent = `${athletesData.length} entries`;
+  populateFilters();
+  filterTable();
+}
+
+function populateFilters() {
+  const schools = [...new Set(athletesData.map(r=>r.school))].sort();
+  const events  = [...new Set(athletesData.map(r=>r.event))].sort();
+  const selS = document.getElementById('filter-school');
+  const selE = document.getElementById('filter-event');
+  const prevS = selS.value, prevE = selE.value;
+  selS.innerHTML = '<option value="">All schools</option>' + schools.map(s=>`<option${s===prevS?' selected':''}>${esc(s)}</option>`).join('');
+  selE.innerHTML = '<option value="">All events</option>'  + events.map(e=>`<option${e===prevE?' selected':''}>${esc(e)}</option>`).join('');
+}
+
+function filterTable() {
+  const nameFilter   = document.getElementById('filter-name').value.toLowerCase();
+  const schoolFilter = document.getElementById('filter-school').value;
+  const eventFilter  = document.getElementById('filter-event').value;
+
+  const filtered = athletesData.filter(r =>
+    (!nameFilter   || r.name.toLowerCase().includes(nameFilter)) &&
+    (!schoolFilter || r.school === schoolFilter) &&
+    (!eventFilter  || r.event  === eventFilter)
+  );
+
+  renderAthletesTable(filtered);
+}
+
+function renderAthletesTable(rows) {
+  const tbody = document.getElementById('athletes-tbody');
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center;padding:20px">No matching rows.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr class="${r.edited ? 'edited-row' : ''}" data-name="${esc(r.name)}" data-event="${esc(r.event)}">
+      <td>${esc(r.name)}</td>
+      <td>${esc(r.school)}</td>
+      <td>${esc(r.age || '')}</td>
+      <td>${esc(r.event)}</td>
+      <td class="time-cell" id="time-${rowId(r)}">${esc(r.best)}</td>
+      <td class="text-muted">${esc(r.meet || '')}</td>
+      <td class="text-muted">${esc(r.date || '')}</td>
+      <td><button class="edit-btn" onclick="startEdit(this, ${JSON.stringify(r.name)}, ${JSON.stringify(r.event)}, ${JSON.stringify(r.best)})">Edit</button></td>
+    </tr>
+  `).join('');
+}
+
+function rowId(r) {
+  return btoa(r.name + '|' + r.event).replace(/[^a-zA-Z0-9]/g,'_');
+}
+
+function startEdit(btn, name, event, current) {
+  const td = btn.closest('tr').querySelector('.time-cell');
+  if (td.querySelector('input')) return; // already editing
+  const orig = td.textContent.trim();
+  td.innerHTML = `<input class="inline-edit" value="${esc(current)}" onblur="saveEdit(this,${JSON.stringify(name)},${JSON.stringify(event)})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value=${JSON.stringify(orig)};this.blur();}">`;
+  td.querySelector('input').focus();
+}
+
+async function saveEdit(input, name, event) {
+  const newTime = input.value.trim();
+  const td = input.closest('.time-cell');
+  td.textContent = newTime;
+
+  const resp = await fetch('/api/athletes/edit', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({season: currentSeason, gender: currentGender, name, event, time: newTime}),
+  });
+  if (resp.ok) {
+    input.closest('tr').classList.add('edited-row');
+    // Update local data
+    const row = athletesData.find(r => r.name === name && r.event === event);
+    if (row) { row.best = newTime; row.edited = true; }
+  } else {
+    console.error('Save failed', await resp.text());
+  }
+}
+
+function exportFile(fmt) {
+  const url = `/api/export/${fmt}?season=${encodeURIComponent(currentSeason)}&gender=${encodeURIComponent(currentGender)}`;
+  window.location.href = url;
+}
+
+// ============================================================
+// Step 3 — Model
+// ============================================================
+async function runModel() {
+  const btn    = document.getElementById('btn-run-model');
+  const status = document.getElementById('model-status');
+  btn.disabled = true;
+  status.textContent = 'Running…';
+  status.className   = 'text-muted';
+
+  const resp = await fetch('/api/model/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      season:      currentSeason,
+      gender:      currentGender,
+      fatigue:     parseFloat(document.getElementById('fatigue-slider').value),
+      max_events:  parseInt(document.getElementById('max-events').value),
+    }),
+  });
+  btn.disabled = false;
+  if (resp.ok) {
+    const j = await resp.json();
+    if (j.status === 'not_implemented') {
+      status.textContent = '⚠ Coming soon — model not yet implemented';
+      status.className   = 'text-muted';
+    } else {
+      status.textContent = '✓ Model complete';
+      status.className   = 'text-success';
+    }
+  } else {
+    status.textContent = '✗ Error ' + resp.status;
+    status.className   = 'text-error';
+  }
+}
+
+// ============================================================
+// Init
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  currentSeason = document.getElementById('season-input').value.trim();
+});
+</script>
+</body>
+</html>

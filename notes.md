@@ -1,0 +1,2 @@
+- Add diver/swimmer classification
+- Add 6/11 dive classifier (determine by meet)
