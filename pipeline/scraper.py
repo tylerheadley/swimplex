@@ -10,7 +10,9 @@ result typically contains an <a> tag pointing to a .pdf file.
 """
 
 import logging
+import os
 import re
+import sys
 import time
 from datetime import date
 from pathlib import Path
@@ -18,6 +20,10 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+
+_PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, _PIPELINE_DIR)
 
 from config import REQUEST_HEADERS, REQUEST_TIMEOUT, SEASON_END, SEASON_START, TEAMS
 
@@ -230,7 +236,7 @@ def scrape_all_teams(
         is provided, otherwise data/pdfs/.
     """
     if pdf_dir is None:
-        base = Path(__file__).parent / "data"
+        base = Path(__file__).parent.parent / "data"
         pdf_dir = (base / season / "pdfs") if season else (base / "pdfs")
     pdf_dir.mkdir(parents=True, exist_ok=True)
 

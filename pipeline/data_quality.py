@@ -29,7 +29,8 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent / "data"
+_PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = _PROJECT_ROOT / "data"
 
 # ---------------------------------------------------------------------------
 # Reuse the same normalization from process_results.py

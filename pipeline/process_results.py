@@ -61,7 +61,8 @@ try:
 except ImportError:
     _SKLEARN_AVAILABLE = False
 
-DATA_DIR = Path(__file__).parent / "data"
+_PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = _PROJECT_ROOT / "data"
 
 # ---------------------------------------------------------------------------
 # Constants

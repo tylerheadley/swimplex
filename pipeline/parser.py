@@ -697,7 +697,7 @@ def parse_pdf(pdf_path: Path) -> list[SwimResult]:
 def parse_all_pdfs(pdf_dir: Path | None = None) -> list[SwimResult]:
     """Parse every PDF in pdf_dir and return all results."""
     if pdf_dir is None:
-        pdf_dir = Path(__file__).parent / "data" / "pdfs"
+        pdf_dir = Path(__file__).parent.parent / "data" / "pdfs"
     all_results: list[SwimResult] = []
     pdfs = sorted(pdf_dir.glob("*.pdf"))
     if not pdfs:

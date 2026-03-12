@@ -23,9 +23,14 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
+_PROJECT_ROOT = Path(__file__).parent.parent
+_PIPELINE_DIR = _PROJECT_ROOT / "pipeline"
+if str(_PIPELINE_DIR) not in sys.path:
+    sys.path.insert(0, str(_PIPELINE_DIR))
+
 app = Flask(__name__)
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = _PROJECT_ROOT
 DATA_DIR = BASE_DIR / "data"
 
 # Lock so sys.argv patching in process_results / best_performances is safe
@@ -125,7 +130,7 @@ def _do_scrape(season: str, start: date, end: date) -> None:
 
 def _do_parse(season: str) -> None:
     from parser import parse_all_pdfs, result_to_dict
-    from main import _filter_sciac, _deduplicate, _write_csv, _write_json
+    from _main import _filter_sciac, _deduplicate, _write_csv, _write_json
     log = logging.getLogger(__name__)
     out_dir = DATA_DIR / season
     out_dir.mkdir(parents=True, exist_ok=True)

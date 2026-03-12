@@ -19,7 +19,8 @@ import argparse
 import json
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent / "data"
+_PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = _PROJECT_ROOT / "data"
 
 
 def main() -> None:

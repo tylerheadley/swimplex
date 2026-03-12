@@ -14,7 +14,8 @@ import argparse
 import json
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent / "data"
+_PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = _PROJECT_ROOT / "data"
 
 # AMPL id → JSON event key
 IND_EVENTS: dict[str, str] = {
