@@ -191,6 +191,9 @@ input, select { font: inherit; }
   padding: 4px 0;
   border-bottom: 1px solid #f3f4f6;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .issue-item:last-child { border-bottom: none; }
 .chevron { font-size: 10px; margin-left: auto; color: #9ca3af; }
@@ -248,6 +251,19 @@ td.time-cell { font-family: monospace; }
   font-size: 13px;
   background: #eff6ff;
 }
+tbody tr.manual-row { background: #eff6ff; }
+.discard-btn { color: #dc2626; border-color: #fca5a5; margin-left: 4px; padding: 2px 5px; }
+.discard-btn:hover { background: #fee2e2; border-color: #dc2626; }
+.discard-btn svg { display: block; }
+.restore-btn { color: #16a34a; border-color: #86efac; margin-left: 4px; }
+.restore-btn:hover { background: #dcfce7; border-color: #16a34a; }
+.issue-item { display: flex; flex-direction: column; gap: 4px; }
+.issue-item-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.issue-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.add-form { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; background: #f9fafb; display: none; }
+.add-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.add-form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 3px; }
+.add-form-grid input, .add-form-grid select { width: 100%; border: 1px solid #d1d5db; border-radius: 6px; padding: 5px 8px; font-size: 13px; background: #fff; }
 
 /* ── Model step ── */
 .placeholder-banner {
@@ -342,13 +358,19 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
         <input type="date" id="end-date" value="2026-04-30">
       </div>
 
-      <div class="flex-gap mt8">
-        <button class="btn btn-primary" id="btn-scrape" onclick="doScrape()">
-          ▶ Scrape Data
-        </button>
-        <button class="btn btn-success" id="btn-parse" onclick="doParse()">
-          ⚙ Parse Data
-        </button>
+      <div class="mt8" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+          <button class="btn btn-primary" id="btn-scrape" onclick="doScrape()">
+            ▶ Scrape Data
+          </button>
+          <span id="scrape-status-hint" class="text-muted" style="font-size:11px;"></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+          <button class="btn btn-success" id="btn-parse" onclick="doParse()">
+            ⚙ Parse &amp; Process
+          </button>
+          <span id="parse-status-hint" class="text-muted" style="font-size:11px;"></span>
+        </div>
         <span id="parse-status" class="text-muted"></span>
       </div>
     </div>
@@ -396,9 +418,63 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
         </div>
         <div class="export-row">
           <button class="btn btn-secondary btn-sm" onclick="loadAthletes()">↻ Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="toggleAddForm()">+ Add Entry</button>
           <button class="btn btn-secondary btn-sm" onclick="exportFile('csv')">⬇ Export CSV</button>
           <button class="btn btn-secondary btn-sm" onclick="exportFile('json')">⬇ Export JSON</button>
           <span id="athletes-summary" class="text-muted"></span>
+        </div>
+
+        <div id="add-entry-form" class="add-form">
+          <div class="card-title" style="margin-bottom:10px;font-size:13px;">Add Manual Entry</div>
+          <div class="add-form-grid">
+            <div><label>Name (Last, First)</label>
+              <input type="text" id="add-name" placeholder="Smith, John" list="add-name-datalist" oninput="updateNameDatalist(this.value)" autocomplete="off">
+              <datalist id="add-name-datalist"></datalist>
+            </div>
+            <div><label>School</label>
+              <select id="add-school">
+                <option value="">Select school…</option>
+                <option>Caltech</option><option>Cal Lutheran</option><option>Chapman</option>
+                <option>Claremont-Mudd-Scripps</option><option>Occidental</option>
+                <option>Pomona-Pitzer</option><option>La Verne</option><option>Redlands</option><option>Whittier</option>
+              </select>
+            </div>
+            <div><label>Yr/Age <span style="font-weight:400;color:#9ca3af">(optional)</span></label><input type="text" id="add-age" placeholder="SR / 21"></div>
+            <div><label>Event</label>
+              <select id="add-event">
+                <option value="">Select event…</option>
+                <optgroup label="Individual">
+                  <option>50 Yard Freestyle</option><option>100 Yard Freestyle</option>
+                  <option>200 Yard Freestyle</option><option>500 Yard Freestyle</option>
+                  <option>1000 Yard Freestyle</option><option>1650 Yard Freestyle</option>
+                  <option>100 Yard Butterfly</option><option>200 Yard Butterfly</option>
+                  <option>50 Yard Backstroke</option><option>100 Yard Backstroke</option><option>200 Yard Backstroke</option>
+                  <option>100 Yard Breaststroke</option><option>200 Yard Breaststroke</option>
+                  <option>200 Yard IM</option><option>400 Yard IM</option>
+                  <option>1 mtr Diving</option><option>3 mtr Diving</option>
+                </optgroup>
+                <optgroup label="Relay Splits">
+                  <option>50 Yard Freestyle (Relay Split)</option>
+                  <option>100 Yard Freestyle (Relay Split)</option>
+                  <option>200 Yard Freestyle (Relay Split)</option>
+                  <option>50 Yard Butterfly (Relay Split)</option>
+                  <option>100 Yard Butterfly (Relay Split)</option>
+                  <option>50 Yard Backstroke (Relay Split)</option>
+                  <option>100 Yard Backstroke (Relay Split)</option>
+                  <option>50 Yard Breaststroke (Relay Split)</option>
+                  <option>100 Yard Breaststroke (Relay Split)</option>
+                </optgroup>
+              </select>
+            </div>
+            <div><label>Best Time / Score</label><input type="text" id="add-best" placeholder="1:54.66"></div>
+            <div><label>Meet (optional)</label><input type="text" id="add-meet" placeholder="Practice"></div>
+            <div><label>Date (optional)</label><input type="date" id="add-date"></div>
+          </div>
+          <div class="flex-gap">
+            <button class="btn btn-success btn-sm" onclick="addEntry()">Add</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleAddForm()">Cancel</button>
+            <span id="add-status" class="text-muted" style="font-size:12px;"></span>
+          </div>
         </div>
         <div class="tbl-wrap">
           <table id="athletes-table">
@@ -406,7 +482,7 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
               <tr>
                 <th>Athlete</th>
                 <th>School</th>
-                <th>Yr</th>
+                <th>Yr/Age</th>
                 <th>Event</th>
                 <th>Best Time</th>
                 <th>Meet</th>
@@ -579,6 +655,49 @@ function onSeasonChange() {
     document.getElementById('start-date').value = `${sy}-09-01`;
     document.getElementById('end-date').value   = `${ey}-04-30`;
   }
+  checkDataStatus();
+}
+
+async function checkDataStatus() {
+  const scrapeHint = document.getElementById('scrape-status-hint');
+  const parseHint  = document.getElementById('parse-status-hint');
+  scrapeHint.textContent = '';
+  parseHint.textContent  = '';
+
+  let status;
+  try {
+    const resp = await fetch(`/api/data-status?season=${encodeURIComponent(currentSeason)}`);
+    if (!resp.ok) return;
+    status = await resp.json();
+  } catch { return; }
+
+  // Scrape hint
+  const pdfs = status.pdfs;
+  if (pdfs.count > 0) {
+    scrapeHint.textContent = `✓ ${pdfs.count} PDFs already downloaded (${pdfs.last_updated})`;
+    scrapeHint.className = 'text-success';
+  } else {
+    scrapeHint.textContent = 'No PDFs found — scrape first';
+    scrapeHint.className = 'text-muted';
+  }
+  scrapeHint.style.fontSize = '11px';
+
+  // Parse hint — show results.json + best_performances status
+  const parsed = status.parsed;
+  const bp = status.best_performances;
+  if (parsed.exists) {
+    const bpParts = [];
+    if (bp.men.exists)   bpParts.push(`Men (${bp.men.last_updated})`);
+    if (bp.women.exists) bpParts.push(`Women (${bp.women.last_updated})`);
+    const bpStr = bpParts.length ? ` · best performances: ${bpParts.join(', ')}` : '';
+    parseHint.textContent = `✓ Parsed ${parsed.last_updated}${bpStr}`;
+    parseHint.className = 'text-success';
+    document.getElementById('btn-continue1').disabled = false;
+  } else {
+    parseHint.textContent = 'No parsed data found';
+    parseHint.className = 'text-muted';
+  }
+  parseHint.style.fontSize = '11px';
 }
 
 function switchTab(name) {
@@ -674,6 +793,7 @@ function doScrape() {
   }, (ok) => {
     btn.disabled = false;
     document.getElementById('parse-status').textContent = ok ? '✓ Scrape complete' : '✗ Scrape error';
+    checkDataStatus();
   });
 }
 
@@ -692,6 +812,7 @@ function doParse() {
       status.textContent = '✓ Parse complete';
       status.className   = 'text-success';
       document.getElementById('btn-continue1').disabled = false;
+      checkDataStatus();
     } else {
       status.textContent = '✗ Parse error — check log';
       status.className   = 'text-error';
@@ -726,11 +847,17 @@ async function loadQuality() {
 
   const BADGES = {
     suspect_times:          ['error', 'Suspect Times'],
+    malformed_times:        ['error', 'Malformed Time Strings'],
     suspect_dive_scores:    ['warn',  'Suspect Dive Scores'],
+    unrecognised_schools:   ['warn',  'Unrecognised Schools'],
     near_duplicate_names:   ['warn',  'Near-Duplicate Names'],
     case_variant_names:     ['info',  'Case Variants'],
     missing_first_name:     ['warn',  'Missing First Name'],
     residual_name_suffixes: ['info',  'Residual Suffixes'],
+    first_last_format:      ['info',  'First-Last Format Names'],
+    event_anomalies:        ['info',  'Event Anomalies'],
+    duplicate_relay_entries:['warn',  'Duplicate Relay Entries'],
+    suspect_relay_splits:   ['warn',  'Suspect Relay Splits'],
   };
 
   let html = '';
@@ -738,7 +865,6 @@ async function loadQuality() {
     const items = issues[cat];
     if (!items || items.length === 0) continue;
     const [badgeClass, label] = BADGES[cat] || ['info', cat.replace(/_/g,' ')];
-    const preview = items.slice(0, 25);
     html += `
     <div class="issue-group">
       <div class="issue-header" onclick="toggleIssue(this)">
@@ -747,22 +873,105 @@ async function loadQuality() {
         <span class="chevron">▶</span>
       </div>
       <div class="issue-body">
-        ${preview.map(item => `<div class="issue-item">${renderIssueItem(cat, item)}</div>`).join('')}
-        ${items.length > 25 ? `<div class="text-muted" style="padding:4px 0">…and ${items.length-25} more</div>` : ''}
+        ${items.map(item => `<div class="issue-item">${renderIssueItem(cat, item)}</div>`).join('')}
       </div>
     </div>`;
   }
   el.innerHTML = html;
 }
 
+const _qItems = {};  // key → item, for quality resolve actions
+
+function _qKey(item) {
+  return [item.name, item.event, item.raw ?? item.finals ?? '', item.pdf].join('|');
+}
+
 function renderIssueItem(cat, item) {
+  const key = _qKey(item);
+  _qItems[key] = item;
+  const keyJ = JSON.stringify(key);
+
   if (Array.isArray(item)) return item.join(' / ');
+
   if (cat === 'near_duplicate_names')
-    return `<strong>${esc(item.name_a)}</strong> ↔ <strong>${esc(item.name_b)}</strong> (sim ${item.similarity})`;
-  if (cat === 'suspect_times')
-    return `<strong>${esc(item.name)}</strong> — ${esc(item.event)}: <code>${esc(item.finals)}</code> — <em>${esc(item.reason)}</em>`;
-  const parts = Object.entries(item).map(([k,v]) => `<span class="text-muted">${k}:</span> ${esc(String(v))}`);
-  return parts.join('  ');
+    return `<div class="issue-item-row"><span><strong>${esc(item.name_a)}</strong> ↔ <strong>${esc(item.name_b)}</strong> (sim ${item.similarity})</span></div>`;
+
+  // For time-related categories: show actions
+  const isTimeIssue = cat === 'suspect_times' || cat === 'malformed_times' || cat === 'suspect_dive_scores';
+  const meta = [item.meet, item.date].filter(Boolean).join(' · ');
+
+  let content = '';
+  if (cat === 'malformed_times') {
+    content = `<strong>${esc(item.name)}</strong> — ${esc(item.event)}: <code>${esc(item.raw)}</code> → <code>${esc(item.attempted_fix)}</code>`;
+  } else if (cat === 'suspect_times') {
+    content = `<strong>${esc(item.name)}</strong> — ${esc(item.event)}: <code>${esc(item.finals)}</code> — <em>${esc(item.reason)}</em>`;
+  } else if (cat === 'suspect_dive_scores') {
+    content = `<strong>${esc(item.name)}</strong> — ${esc(item.event)}: <code>${esc(item.finals)}</code> (score ${item.score}) — <em>${esc(item.reason)}</em>`;
+  } else {
+    const parts = Object.entries(item).map(([k,v]) => `<span class="text-muted">${k}:</span> ${esc(String(v))}`);
+    return `<div class="issue-item-row"><span>${parts.join('  ')}</span></div>`;
+  }
+
+  const actions = isTimeIssue ? `
+    <div class="issue-item-actions">
+      ${cat === 'malformed_times' ? `<button class="edit-btn btn-sm" onclick="resolveQuality('accept_fix',${keyJ})">Accept ${esc(item.attempted_fix)}</button>` : ''}
+      <button class="edit-btn btn-sm" onclick="editQualityItem(this,${keyJ})">Edit</button>
+      <button class="edit-btn btn-sm discard-btn" onclick="resolveQuality('discard',${keyJ})">Discard</button>
+    </div>` : '';
+
+  return `
+    <div class="issue-item-row">
+      <span>${content}${meta ? ` <span class="text-muted" style="font-size:11px">(${esc(meta)})</span>` : ''}</span>
+      ${actions}
+    </div>`;
+}
+
+async function resolveQuality(action, key, correctedTime) {
+  const item = _qItems[key];
+  if (!item) return;
+  const value = item.raw ?? item.finals ?? '';
+  const gender = item.gender || currentGender;
+  const resp = await fetch('/api/quality/resolve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      season: currentSeason, gender,
+      name: item.name, event: item.event,
+      value, pdf: item.pdf,
+      action,
+      corrected_time: correctedTime || (action === 'accept_fix' ? item.attempted_fix : ''),
+    }),
+  });
+  if (resp.ok) {
+    // Remove item from the DOM
+    const btn = document.querySelector(`[onclick*="${key.replace(/"/g,'&quot;')}"]`);
+    const issueEl = btn?.closest('.issue-item') || btn?.closest('.issue-item-row')?.parentElement;
+    issueEl?.remove();
+    // Reload quality to update counts
+    loadQuality();
+  }
+}
+
+function editQualityItem(btn, key) {
+  const item = _qItems[key];
+  if (!item) return;
+  const row = btn.closest('.issue-item-row');
+  const currentVal = item.attempted_fix ?? item.finals ?? '';
+  const actionsEl = row.querySelector('.issue-item-actions');
+  actionsEl.innerHTML = `
+    <input class="inline-edit" style="width:100px" value="${esc(currentVal)}"
+      placeholder="corrected time"
+      onkeydown="if(event.key==='Enter'){saveQualityEdit(this,'${key.replace(/'/g,"\\'")}');}if(event.key==='Escape'){loadQuality();}">
+    <button class="edit-btn btn-sm" onclick="saveQualityEdit(this.previousElementSibling,'${key.replace(/'/g,"\\'")}')">Save</button>
+    <button class="edit-btn btn-sm" onclick="loadQuality()">Cancel</button>
+  `;
+  actionsEl.querySelector('input').focus();
+}
+
+async function saveQualityEdit(input, key) {
+  const corrected = input.value.trim();
+  if (!corrected) return;
+  await resolveQuality('edit', key, corrected);
 }
 
 function esc(s) {
@@ -799,14 +1008,44 @@ async function loadAthletes() {
   filterTable();
 }
 
+// Canonical event order: individual (by stroke/dist), diving, relay splits (by stroke/dist)
+const ORDERED_EVENTS = [
+  '50 Yard Freestyle','100 Yard Freestyle','200 Yard Freestyle','500 Yard Freestyle','1000 Yard Freestyle','1650 Yard Freestyle',
+  '100 Yard Butterfly','200 Yard Butterfly',
+  '50 Yard Backstroke','100 Yard Backstroke','200 Yard Backstroke',
+  '100 Yard Breaststroke','200 Yard Breaststroke',
+  '200 Yard IM','400 Yard IM',
+  '1 mtr Diving','3 mtr Diving',
+  '50 Yard Freestyle (Relay Split)','100 Yard Freestyle (Relay Split)','200 Yard Freestyle (Relay Split)',
+  '50 Yard Butterfly (Relay Split)','100 Yard Butterfly (Relay Split)',
+  '50 Yard Backstroke (Relay Split)','100 Yard Backstroke (Relay Split)',
+  '50 Yard Breaststroke (Relay Split)','100 Yard Breaststroke (Relay Split)',
+];
+
+function _sortEvents(eventsSet) {
+  const ordered = ORDERED_EVENTS.filter(e => eventsSet.has(e));
+  const rest = [...eventsSet].filter(e => !ORDERED_EVENTS.includes(e)).sort();
+  return [...ordered, ...rest];
+}
+
 function populateFilters() {
   const schools = [...new Set(athletesData.map(r=>r.school))].sort();
-  const events  = [...new Set(athletesData.map(r=>r.event))].sort();
+  const evtSet  = new Set(athletesData.map(r=>r.event));
+  const events  = _sortEvents(evtSet);
   const selS = document.getElementById('filter-school');
   const selE = document.getElementById('filter-event');
   const prevS = selS.value, prevE = selE.value;
   selS.innerHTML = '<option value="">All schools</option>' + schools.map(s=>`<option${s===prevS?' selected':''}>${esc(s)}</option>`).join('');
-  selE.innerHTML = '<option value="">All events</option>'  + events.map(e=>`<option${e===prevE?' selected':''}>${esc(e)}</option>`).join('');
+
+  // Build filter dropdown with optgroups
+  const indivEvents = events.filter(e => !e.includes('Relay Split') && !e.includes('Diving'));
+  const diveEvents  = events.filter(e => e.includes('Diving'));
+  const splitEvents = events.filter(e => e.includes('Relay Split'));
+  let evtHtml = '<option value="">All events</option>';
+  if (indivEvents.length) evtHtml += `<optgroup label="Individual">${indivEvents.map(e=>`<option${e===prevE?' selected':''}>${esc(e)}</option>`).join('')}</optgroup>`;
+  if (diveEvents.length)  evtHtml += `<optgroup label="Diving">${diveEvents.map(e=>`<option${e===prevE?' selected':''}>${esc(e)}</option>`).join('')}</optgroup>`;
+  if (splitEvents.length) evtHtml += `<optgroup label="Relay Splits">${splitEvents.map(e=>`<option${e===prevE?' selected':''}>${esc(e)}</option>`).join('')}</optgroup>`;
+  selE.innerHTML = evtHtml;
 }
 
 function filterTable() {
@@ -829,49 +1068,153 @@ function renderAthletesTable(rows) {
     tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center;padding:20px">No matching rows.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => `
-    <tr class="${r.edited ? 'edited-row' : ''}" data-name="${esc(r.name)}" data-event="${esc(r.event)}">
-      <td>${esc(r.name)}</td>
+  tbody.innerHTML = rows.map(r => {
+    const rowClass = r.edited ? 'edited-row' : r.manual ? 'manual-row' : '';
+    const dn = esc(r.name), de = esc(r.event), db = esc(r.best);
+    const trashIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>`;
+    const actions = `
+      <button class="edit-btn" data-name="${dn}" data-event="${de}" data-best="${db}" onclick="startEdit(this)">Edit</button>
+      ${r.edited ? `<button class="edit-btn restore-btn" data-name="${dn}" data-event="${de}" onclick="restoreEntry(this)">Restore</button>` : ''}
+      <button class="edit-btn discard-btn" title="Discard" data-name="${dn}" data-event="${de}" onclick="discardEntry(this)">${trashIcon}</button>
+    `;
+    return `<tr class="${rowClass}" data-name="${esc(r.name)}" data-event="${esc(r.event)}">
+      <td>${esc(r.name)}${r.manual ? ' <span class="text-muted" style="font-size:10px">[M]</span>' : ''}</td>
       <td>${esc(r.school)}</td>
       <td>${esc(r.age || '')}</td>
       <td>${esc(r.event)}</td>
       <td class="time-cell" id="time-${rowId(r)}">${esc(r.best)}</td>
       <td class="text-muted">${esc(r.meet || '')}</td>
       <td class="text-muted">${esc(r.date || '')}</td>
-      <td><button class="edit-btn" onclick="startEdit(this, ${JSON.stringify(r.name)}, ${JSON.stringify(r.event)}, ${JSON.stringify(r.best)})">Edit</button></td>
-    </tr>
-  `).join('');
+      <td style="white-space:nowrap">${actions}</td>
+    </tr>`;
+  }).join('');
 }
 
 function rowId(r) {
   return btoa(r.name + '|' + r.event).replace(/[^a-zA-Z0-9]/g,'_');
 }
 
-function startEdit(btn, name, event, current) {
+function startEdit(btn) {
+  const name = btn.dataset.name;
+  const evtName = btn.dataset.event;
+  const current = btn.dataset.best;
   const td = btn.closest('tr').querySelector('.time-cell');
   if (td.querySelector('input')) return; // already editing
   const orig = td.textContent.trim();
-  td.innerHTML = `<input class="inline-edit" value="${esc(current)}" onblur="saveEdit(this,${JSON.stringify(name)},${JSON.stringify(event)})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value=${JSON.stringify(orig)};this.blur();}">`;
-  td.querySelector('input').focus();
+  const input = document.createElement('input');
+  input.className = 'inline-edit';
+  input.value = current;
+  input.dataset.name = name;
+  input.dataset.event = evtName;
+  input.dataset.orig = orig;
+  input.addEventListener('blur', () => saveEdit(input));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = orig; input.removeEventListener('blur', saveEdit); input.blur(); td.textContent = orig; }
+  });
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
 }
 
-async function saveEdit(input, name, event) {
+async function saveEdit(input) {
+  const name = input.dataset.name;
+  const evtName = input.dataset.event;
+  const orig = input.dataset.orig;
   const newTime = input.value.trim();
   const td = input.closest('.time-cell');
+  if (!td) return;
   td.textContent = newTime;
-
+  if (newTime === orig) return; // no change
   const resp = await fetch('/api/athletes/edit', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({season: currentSeason, gender: currentGender, name, event, time: newTime}),
+    body: JSON.stringify({season: currentSeason, gender: currentGender, name, event: evtName, time: newTime}),
   });
   if (resp.ok) {
-    input.closest('tr').classList.add('edited-row');
-    // Update local data
-    const row = athletesData.find(r => r.name === name && r.event === event);
+    const tr = td.closest('tr');
+    if (tr) tr.classList.add('edited-row');
+    const row = athletesData.find(r => r.name === name && r.event === evtName);
     if (row) { row.best = newTime; row.edited = true; }
   } else {
     console.error('Save failed', await resp.text());
+  }
+}
+
+async function discardEntry(btn) {
+  const name = btn.dataset.name;
+  const evtName = btn.dataset.event;
+  if (!confirm(`Discard ${name} — ${evtName}?\nThis removes it from the best times and model data.`)) return;
+  const resp = await fetch('/api/athletes/discard', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({season: currentSeason, gender: currentGender, name, event: evtName}),
+  });
+  if (resp.ok) {
+    athletesData = athletesData.filter(r => !(r.name === name && r.event === evtName));
+    filterTable();
+  }
+}
+
+async function restoreEntry(btn) {
+  const name = btn.dataset.name;
+  const evtName = btn.dataset.event;
+  const resp = await fetch('/api/athletes/restore', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({season: currentSeason, gender: currentGender, name, event: evtName}),
+  });
+  if (resp.ok) {
+    await loadAthletes();
+  }
+}
+
+function toggleAddForm() {
+  const el = document.getElementById('add-entry-form');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  document.getElementById('add-status').textContent = '';
+}
+
+function updateNameDatalist(query) {
+  const dl = document.getElementById('add-name-datalist');
+  if (!query || query.length < 2) { dl.innerHTML = ''; return; }
+  const q = query.toLowerCase();
+  const matches = [...new Set(athletesData.map(r => r.name))]
+    .filter(n => n.toLowerCase().includes(q))
+    .slice(0, 20);
+  dl.innerHTML = matches.map(n => `<option value="${esc(n)}">`).join('');
+}
+
+async function addEntry() {
+  const name   = document.getElementById('add-name').value.trim();
+  const school = document.getElementById('add-school').value.trim();
+  const age    = document.getElementById('add-age').value.trim();
+  const event  = document.getElementById('add-event').value;
+  const best   = document.getElementById('add-best').value.trim();
+  const meet   = document.getElementById('add-meet').value.trim();
+  const date   = document.getElementById('add-date').value;
+  const status = document.getElementById('add-status');
+  if (!name || !event || !best) {
+    status.textContent = 'Name, event, and best time are required.';
+    status.className = 'text-error';
+    return;
+  }
+  const resp = await fetch('/api/athletes/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({season: currentSeason, gender: currentGender, name, school, age, event, best, meet, date}),
+  });
+  if (resp.ok) {
+    toggleAddForm();
+    ['add-name','add-age','add-best','add-meet','add-date'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('add-school').value = '';
+    document.getElementById('add-event').value = '';
+    document.getElementById('add-name-datalist').innerHTML = '';
+    await loadAthletes();
+  } else {
+    const j = await resp.json().catch(() => ({}));
+    status.textContent = j.error || 'Failed to add entry.';
+    status.className = 'text-error';
   }
 }
 
@@ -921,6 +1264,7 @@ async function runModel() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   currentSeason = document.getElementById('season-input').value.trim();
+  checkDataStatus();
 });
 </script>
 </body>

@@ -17,10 +17,15 @@ Run process_results.py first to generate athlete_profiles_<gender>.json.
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = _PROJECT_ROOT / "data"
+
+if str(Path(__file__).parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent))
+from config import is_relevant_event
 
 
 def main() -> None:
@@ -46,6 +51,8 @@ def main() -> None:
     for name, info in data["athletes"].items():
         events_out: dict[str, dict] = {}
         for event, perfs in info["events"].items():
+            if not is_relevant_event(event):
+                continue
             best_entry = perfs.get("1")
             if best_entry is None:
                 continue

@@ -3,7 +3,48 @@ SCIAC swimming and diving conference configuration.
 Each team entry maps to its schedule/results pages for both men's and women's programs.
 """
 
+import re
 from datetime import date
+
+# ---------------------------------------------------------------------------
+# Events relevant for coaching decisions
+# ---------------------------------------------------------------------------
+
+# Individual events (exact names as they appear after normalisation)
+_RELEVANT_INDIV: frozenset[str] = frozenset({
+    "50 Yard Freestyle", "100 Yard Freestyle", "200 Yard Freestyle",
+    "500 Yard Freestyle", "1000 Yard Freestyle", "1650 Yard Freestyle",
+    "100 Yard Butterfly", "200 Yard Butterfly",
+    "50 Yard Backstroke", "100 Yard Backstroke", "200 Yard Backstroke",
+    "100 Yard Breaststroke", "200 Yard Breaststroke",
+    "200 Yard IM", "400 Yard IM",
+    "1 mtr Diving", "3 mtr Diving",
+})
+
+# Base event names for relay splits (gender prefix and "(Relay Split)" stripped)
+_RELEVANT_RELAY_SPLIT_BASES: frozenset[str] = frozenset({
+    "50 Yard Freestyle", "100 Yard Freestyle", "200 Yard Freestyle",
+    "50 Yard Butterfly", "100 Yard Butterfly",
+    "50 Yard Backstroke", "100 Yard Backstroke",
+    "50 Yard Breaststroke", "100 Yard Breaststroke",
+})
+
+_GENDER_PREFIX_RE = re.compile(r"^(Men|Women|Mixed)\s+", re.IGNORECASE)
+
+
+def is_relevant_event(event_name: str) -> bool:
+    """Return True if the event is in the coaching-relevant whitelist.
+
+    Works for both gender-prefixed names (results.json: 'Men 50 Yard Freestyle')
+    and unprefixed names (athlete_profiles / best_performances: '50 Yard Freestyle').
+    """
+    bare = _GENDER_PREFIX_RE.sub("", event_name).strip()
+    if bare in _RELEVANT_INDIV:
+        return True
+    if "(Relay Split)" in bare:
+        base = bare.replace(" (Relay Split)", "").strip()
+        return base in _RELEVANT_RELAY_SPLIT_BASES
+    return False
 
 # Current season date range (update each year)
 SEASON_START = date(2025, 9, 1)

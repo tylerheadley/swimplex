@@ -1,0 +1,192 @@
+# Swimplex — CLAUDE.md
+
+SCIAC swimming data pipeline + Flask coach UI. Scrapes Hy-Tek meet PDFs from each school's Sidearm Sports schedule page, parses them into structured JSON, and exposes the data through a web app and optimisation model (in progress).
+
+---
+
+## Workflow instructions for Claude
+
+- **After making any changes to the web app** (app.py, index.html, or any pipeline file it calls), kill any running instance on port 5001 and restart the app so the user can immediately check the result:
+  ```bash
+  kill $(lsof -ti :5001) 2>/dev/null; sleep 1 && python3 web/app.py &
+  ```
+- When regenerating pipeline JSON files (process_results, best_performances), always run both Men and Women.
+
+---
+
+## Project layout
+
+```
+main.py                  # Thin CLI shim; delegates to pipeline/_main.py
+pipeline/
+  _main.py               # Real scrape+parse entry point
+  config.py              # School names, team URLs, relevant-event whitelist
+  scraper.py             # Sidearm Sports HTML scraper (requests + BeautifulSoup)
+  parser.py              # PDF → SwimResult[] with pdfplumber word-coordinate approach
+  process_results.py     # Event rankings + athlete profiles from results.json
+  best_performances.py   # Per-athlete season bests per event
+  ampl_export.py         # best_performances JSON → AMPL .dat
+  data_quality.py        # Validation: suspect times, near-duplicate names, etc.
+  README.md              # Detailed developer documentation for the pipeline
+model/                   # Optimisation model (placeholder; future: lineup.mod, solve.py)
+web/
+  app.py                 # Flask backend; wraps pipeline functions via SSE streaming
+  templates/index.html   # Single-page coach UI
+  README.md              # Web layer overview
+data/
+  <season>/
+    pdfs/                # Downloaded PDFs
+    results.json / .csv  # Parsed, filtered, deduplicated swim results
+    best_performances_<gender>.json
+    event_rankings_<gender>.json
+    athlete_profiles_<gender>.json
+    edits_<gender>.json              # Coach time overrides and discards
+    manual_additions_<gender>.json   # Manually added athlete entries
+    quality_resolutions.json         # Resolved data quality flags
+```
+
+---
+
+## Data flow
+
+```
+python3 main.py --scrape [--season YYYY-YY]    →  data/<season>/pdfs/*.pdf
+python3 main.py --parse  [--season YYYY-YY]    →  data/<season>/results.json + .csv
+
+python3 pipeline/process_results.py   --season X --gender Men|Women
+python3 pipeline/best_performances.py --season X --gender Men|Women
+python3 pipeline/ampl_export.py       --season X --gender Men|Women
+python3 pipeline/data_quality.py      --season X [--json]
+```
+
+Or run everything at once via the web UI at `http://localhost:5001`.
+
+---
+
+## Running the web app
+
+```bash
+python3 web/app.py
+# open http://localhost:5001
+```
+
+The app streams pipeline log output to the browser via SSE. The `PORT` environment variable overrides the default (5001).
+
+---
+
+## Dependencies
+
+```
+requests>=2.31
+beautifulsoup4>=4.12
+pdfplumber>=0.11
+flask>=3.0
+scikit-learn   # optional — used for dive-score GMM in process_results.py
+```
+
+Install with `pip install -r requirements.txt`.
+
+---
+
+## Key implementation notes
+
+### parser.py — column layout
+
+Words are assigned to columns by their `x0` coordinate:
+
+| Column | x0 range        |
+|--------|-----------------|
+| place  | x0 < 46         |
+| name   | 46 ≤ x0 < 187   |
+| age    | 187 ≤ x0 < 210  |
+| school | 210 ≤ x0 < 360  |
+| seed   | 360 ≤ x0 < 440  |
+| finals | 440 ≤ x0 < 525  |
+| points | x0 ≥ 525        |
+
+Coordinates are rounded to one decimal place before comparison (avoids floating-point boundary misses like `x0 = 209.9999`).
+
+### relay_leg semantics
+
+| relay_leg | Meaning                    | Downstream treatment             |
+|-----------|----------------------------|----------------------------------|
+| 0         | Relay team row             | Relays section of event rankings |
+| 1         | Flat-start leadoff         | Treated as an individual swim (no Relay Split suffix) |
+| ≥ 2       | Exchange-start relay split | Individual section, event name suffixed with `(Relay Split)` |
+
+The 50 Yard Backstroke is always relay_leg=1 (medley relay leadoff) so it is never suffixed with "(Relay Split)". It is included in `_RELEVANT_INDIV` in config.py for this reason.
+
+### Relevant events whitelist (`config.py`)
+
+`is_relevant_event()` is used by `best_performances.py`, `data_quality.py`, and the web UI to filter to coaching-relevant events only. It handles both gender-prefixed names (as they appear in results.json: `"Men 50 Yard Freestyle"`) and unprefixed names (as they appear in best_performances.json).
+
+Individual events: 50/100/200/500/1000/1650 Free, 100/200 Fly, 50/100/200 Back, 100/200 Breast, 200/400 IM, 1mtr/3mtr Diving.
+
+Relay split bases: 50/100/200 Free, 50/100 Fly, 50/100 Back, 50/100 Breast.
+
+### Name normalisation (`_normalize_name`) — applied in this order
+
+1. "First Last" → "Last, First" (no comma → invert tokens)
+2. Strip leading M./W. gender prefix (`M.Kiss, Jake` → `Kiss, Jake`)
+3. Strip trailing school/year codes: WSO WFR W18 MSO MFR M21, etc.
+4. Strip trailing single-letter middle initial
+5. Strip orphaned trailing comma (`Vanluvanee, ` → `Vanluvanee`)
+6. Title-case all-caps first names with a vowel (`Zheng, BO` → `Zheng, Bo`)
+
+### Time cleaning (`_clean_raw` in process_results.py)
+
+Applied before storing any time value. Handles:
+- `NT x10:39.87` → `10:39.87` (NT/x prefix strip)
+- `11:23.76 11:33.64` → `11:33.64` (two concatenated times; takes the last/finals value)
+- `1:48.04 D3B` → `1:48.04` (trailing qualifier code strip)
+- `50.58%Q25` → `50.58` (qualifier attached without space)
+- `DFS` → treated as invalid performance (same as DQ/NT)
+
+### Bare integer filtering
+
+Both `best_performances.py` and `process_results.py` reject times that are bare integers (no colon or decimal). These are place-number artefacts from the SCIAC conference 1650 Yard Freestyle section. Diving scores are **not** filtered because they can legitimately be round numbers.
+
+### School canonicalisation
+
+22 raw variants → 9 canonical SCIAC schools. CMS has the most variants because Hy-Tek PDFs frequently prefix it with a gender letter and graduation year (`V 19 CMS-CA`). See `pipeline/config.py`.
+
+### data/2025-26 — known issues
+
+- SCIAC conference 1650 Yard Freestyle: place numbers mis-parsed as times — correctly excluded by bare-integer filter.
+- Some 200-relay splits in the conference PDF show ~26 s (should be 50-yard legs) — parsing bug, not yet fixed.
+- "Vanluvanee" (no first name) vs "Vanluvanee, Adam" — near-duplicate detector flags this pair.
+- "DeBoom, Poet" vs "Deboom, Poet" — case variant; alias voting resolves it.
+
+---
+
+## Coach edit persistence
+
+Three files under `data/<season>/` store coach overrides and survive pipeline re-runs:
+
+- **`edits_<gender>.json`** — keyed by athlete name → event. Each value is `{"action": "edit", "time": "..."}` or `{"action": "discard"}`.
+- **`manual_additions_<gender>.json`** — times entered manually for athletes not in scraped data. Same structure as best_performances.json swimmers dict.
+- **`quality_resolutions.json`** — list of resolved data quality flags. Edit/accept_fix resolutions also propagate into `edits_<gender>.json`.
+
+The `_build_athlete_rows()` helper in app.py merges all three sources on every `/api/athletes` request.
+
+---
+
+## Web API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | Coach UI (single-page) |
+| POST | `/api/scrape` | Scrape PDFs; body: `{season, start, end}`; SSE stream |
+| POST | `/api/parse` | Parse + process pipeline; body: `{season, gender}`; SSE stream |
+| GET | `/api/data-status` | PDF count + parse timestamps; param: `season` |
+| GET | `/api/athletes` | Best performances rows; params: `season`, `gender` |
+| POST | `/api/athletes/edit` | Override a best time; body: `{season, gender, name, event, time}` |
+| POST | `/api/athletes/discard` | Hide an entry; body: `{season, gender, name, event}` |
+| POST | `/api/athletes/restore` | Remove an override; body: `{season, gender, name, event}` |
+| POST | `/api/athletes/add` | Add a manual entry; body: `{season, gender, name, school, age, event, best, meet, date}` |
+| GET | `/api/quality` | Data quality report (resolved items filtered out); param: `season` |
+| POST | `/api/quality/resolve` | Resolve a quality flag; body: `{season, gender, name, event, value, pdf, action, corrected_time}` |
+| GET | `/api/export/csv` | Download best_performances as CSV (edits + manual additions included) |
+| GET | `/api/export/json` | Download best_performances as JSON (edits + manual additions included) |
+| POST | `/api/model/run` | Run optimisation model (not yet implemented) |
+| GET | `/api/lineup` | Retrieve optimal lineup (not yet implemented) |

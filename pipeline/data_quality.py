@@ -25,12 +25,17 @@ Checks performed:
 import argparse
 import json
 import re
+import sys
 from collections import defaultdict
 from difflib import SequenceMatcher
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = _PROJECT_ROOT / "data"
+
+if str(Path(__file__).parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent))
+from config import is_relevant_event
 
 # ---------------------------------------------------------------------------
 # Reuse the same normalization from process_results.py
@@ -40,7 +45,7 @@ _TRAILING_CODE_RE  = re.compile(r"\s+[WM](?:FR|SO|JR|SR|\d{2})$")
 _TRAILING_INIT_RE  = re.compile(r"\s+[A-Za-z]$")
 _LEADING_PREFIX_RE = re.compile(r"^[A-Z]\.\s*")
 _MMSS_RE           = re.compile(r"^(\d+):(\d+(?:\.\d+)?)$")
-_INVALID_PERF      = {"DQ", "NT", "NP", "NS", "SCR", "---", "DNF"}
+_INVALID_PERF      = {"DQ", "NT", "NP", "NS", "SCR", "---", "DNF", "DFS"}
 _TRAILING_SYMS_RE  = re.compile(r"[@#$%!]+$")
 
 _SCHOOL_CANONICAL = {
@@ -235,18 +240,9 @@ def _find_near_duplicates(names: list[str], threshold: float = 0.85) -> list[tup
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Data quality report for Swimplex results")
-    ap.add_argument("--season", required=True, metavar="YYYY-YY")
-    ap.add_argument("--json", action="store_true", help="Also write JSON report")
-    args = ap.parse_args()
-
-    results_path = DATA_DIR / args.season / "results.json"
-    if not results_path.exists():
-        ap.error(f"Results file not found: {results_path}")
-
-    rows: list[dict] = json.loads(results_path.read_text())
-
+def _run_checks(rows: list[dict]) -> dict:
+    """Run all quality checks on a list of result dicts. Returns issues dict."""
+    from process_results import _clean_raw, _canonicalize_school
     issues: dict[str, list] = defaultdict(list)
 
     # Apply name normalization + alias resolution (same as in process_results.py)
@@ -257,6 +253,8 @@ def main() -> None:
         n = _name_aliases.get(r["_norm_name"], r["_norm_name"])
         r["_norm_name"] = _MANUAL_NAME_ALIASES.get(n, n)
 
+    # Restrict all checks to coaching-relevant events only
+    rows = [r for r in rows if is_relevant_event(r["event_name"])]
     indiv_rows = [r for r in rows if not r["is_relay"] or r["relay_leg"] > 0]
 
     # ── 1. Suspect times ──────────────────────────────────────────────────────
@@ -281,6 +279,8 @@ def main() -> None:
                 "reason":  "bare integer (no colon/decimal)",
                 "pdf":     r["pdf_file"],
                 "meet":    r["meet_name"],
+                "gender":  r.get("gender", ""),
+                "date":    r.get("meet_date", ""),
             })
             continue
 
@@ -301,9 +301,37 @@ def main() -> None:
                     "reason":  f"pace {per50}s/50 outside [{_PER_50_MIN}, {_PER_50_MAX}]",
                     "pdf":     r["pdf_file"],
                     "meet":    r["meet_name"],
+                    "gender":  r.get("gender", ""),
+                    "date":    r.get("meet_date", ""),
                 })
 
-    # ── 2. Suspect dive scores ────────────────────────────────────────────────
+    # ── 2. Malformed time strings ─────────────────────────────────────────────
+    # Apply the same cleaning that process_results uses (_clean_raw), then flag
+    # values that are still unparseable — i.e. things the pipeline couldn't fix.
+    for r in indiv_rows:
+        raw = r["finals"]
+        attempted = _clean_raw(raw)
+        # Skip empty / recognised codes after cleaning
+        inner = _TRAILING_SYMS_RE.sub("", attempted.strip()).strip()
+        if not inner or inner.upper() in _INVALID_PERF:
+            continue
+        check_val = inner[1:].strip() if inner.lower().startswith("x") else inner
+        if not check_val or check_val.upper() in _INVALID_PERF:
+            continue
+        # Only flag if still unparseable after the pipeline's best attempt
+        if _to_seconds(attempted) is None:
+            issues["malformed_times"].append({
+                "name":          r["_norm_name"],
+                "event":         r["event_name"],
+                "raw":           raw,
+                "attempted_fix": attempted,
+                "pdf":           r["pdf_file"],
+                "meet":          r["meet_name"],
+                "gender":        r.get("gender", ""),
+                "date":          r.get("meet_date", ""),
+            })
+
+    # ── 3. Suspect dive scores ────────────────────────────────────────────────
     for r in indiv_rows:
         if not _is_diving(r["event_name"]):
             continue
@@ -327,8 +355,6 @@ def main() -> None:
         if r["school"]:
             school_set.add(r["school"])
     for school in sorted(school_set):
-        # Basic canonicalisation check
-        from process_results import _canonicalize_school
         canon = _canonicalize_school(school)
         if canon not in _SCHOOL_CANONICAL:
             issues["unrecognised_schools"].append({"raw": school, "canonicalized": canon})
@@ -380,9 +406,11 @@ def main() -> None:
             continue
         issues["near_duplicate_names"].append({"name_a": a, "name_b": b, "similarity": sim})
 
-    # ── 7. First-Last format names (no comma in raw) ──────────────────────────
+    # ── 7. First-Last format names where normalization may have failed ────────
+    # Only flag if the raw name has no comma AND the normalised result also has
+    # no comma — meaning the inversion heuristic couldn't determine last/first.
     for r in rows:
-        if "," not in r["name"] and not r["is_relay"]:
+        if "," not in r["name"] and not r["is_relay"] and "," not in r["_norm_name"]:
             issues["first_last_format"].append({
                 "raw":        r["name"],
                 "normalised": r["_norm_name"],
@@ -406,8 +434,9 @@ def main() -> None:
         if m:
             dist = float(m.group(1))
             unit = m.group(2).lower()
-            # Flag unusual relay distances
-            if "relay" in ev.lower() and dist not in (200, 400, 800, 1600):
+            # Flag unusual relay distances — skip relay splits, which represent
+            # individual legs and can legitimately have any distance.
+            if "relay" in ev.lower() and "(relay split)" not in ev.lower() and dist not in (200, 400, 800, 1600):
                 issues["event_anomalies"].append({
                     "event":  ev,
                     "reason": f"unusual relay distance: {dist}",
@@ -464,14 +493,21 @@ def main() -> None:
                     "pdf":     r["pdf_file"],
                 })
 
-    # ── Print report ──────────────────────────────────────────────────────────
-    total = sum(len(v) for v in issues.values())
-    print(f"\n=== Data Quality Report: {args.season} ===")
-    print(f"Total issues found: {total}\n")
+    return dict(issues)
 
-    # De-duplicate First-Last format before printing (many rows per athlete)
+
+def build_report(season: str) -> dict:
+    """Run all quality checks and return the issues dict (no I/O side-effects)."""
+    results_path = DATA_DIR / season / "results.json"
+    if not results_path.exists():
+        raise FileNotFoundError(f"Results file not found: {results_path}")
+
+    rows: list[dict] = json.loads(results_path.read_text())
+    issues = _run_checks(rows)
+
+    # De-duplicate First-Last format (many rows per athlete)
     if issues.get("first_last_format"):
-        seen_fl: set[str] = set()
+        seen_fl: set[tuple] = set()
         deduped = []
         for item in issues["first_last_format"]:
             k = (item["raw"], item["pdf"])
@@ -480,19 +516,37 @@ def main() -> None:
                 deduped.append(item)
         issues["first_last_format"] = deduped
 
+    return issues
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Data quality report for Swimplex results")
+    ap.add_argument("--season", required=True, metavar="YYYY-YY")
+    ap.add_argument("--json", action="store_true", help="Also write JSON report")
+    args = ap.parse_args()
+
+    results_path = DATA_DIR / args.season / "results.json"
+    if not results_path.exists():
+        ap.error(f"Results file not found: {results_path}")
+
+    issues = build_report(args.season)
+
+    # ── Print report ──────────────────────────────────────────────────────────
+    total = sum(len(v) for v in issues.values())
+    print(f"\n=== Data Quality Report: {args.season} ===")
+    print(f"Total issues found: {total}\n")
+
     for category, items in sorted(issues.items()):
         if not items:
             continue
         label = category.replace("_", " ").title()
         print(f"── {label} ({len(items)}) ──────────────────────────")
-        for item in items[:25]:      # cap at 25 per category for readability
+        for item in items:
             if isinstance(item, list):
                 print(f"  {item}")
             else:
                 parts = [f"{k}={v!r}" for k, v in item.items()]
                 print("  " + "  ".join(parts))
-        if len(items) > 25:
-            print(f"  … and {len(items) - 25} more")
         print()
 
     # ── Optionally write JSON ──────────────────────────────────────────────────

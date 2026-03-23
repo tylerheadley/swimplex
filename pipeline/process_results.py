@@ -69,8 +69,17 @@ DATA_DIR = _PROJECT_ROOT / "data"
 # ---------------------------------------------------------------------------
 
 _MMSS_RE           = re.compile(r"^(\d+):(\d+(?:\.\d+)?)$")
-_INVALID_PERF      = {"DQ", "NT", "NP", "NS", "SCR", "---", "DNF"}
+_INVALID_PERF      = {"DQ", "NT", "NP", "NS", "SCR", "---", "DNF", "DFS"}
 _TRAILING_SYMS_RE  = re.compile(r"[@#$%!]+$")
+
+# A bare swim-time token: digits, optional colon+seconds, optional decimal.
+# Matches: "50.58", "1:04.33", "11:23.76"
+_TIME_PAT = r"\d+(?::\d{2}(?:\.\d+)?|\.\d+)"
+# Two adjacent time tokens, second optionally x-prefixed (exhibition): "seed finals"
+_TWO_TIMES_RE      = re.compile(rf"^({_TIME_PAT})\s+[xX]?({_TIME_PAT})$")
+# Time followed by a trailing qualifier code, optionally separated by space/%
+# Handles: "1:48.04 D3B", "50.58%Q25", "23.52 D3B", "55.91 Q25", "4:23.95 Q25"
+_TIME_QUALIFIER_RE = re.compile(rf"^[xX]?({_TIME_PAT})\s*%?\s*[A-Za-z][A-Za-z0-9]*$")
 _TRAILING_CODE_RE  = re.compile(r"\s+[WM](?:FR|SO|JR|SR|\d{2})$")
 _TRAILING_INIT_RE  = re.compile(r"\s+[A-Za-z]$")
 _LEADING_PREFIX_RE = re.compile(r"^[A-Z]\.\s*")
@@ -232,9 +241,28 @@ def _canonicalize_school(school: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _clean_raw(raw: str) -> str:
-    """Strip Hy-Tek qualifier symbols and normalise 'DQ DQ' → 'DQ'."""
+    """Strip Hy-Tek qualifier symbols and normalise common malformed patterns."""
     val = _TRAILING_SYMS_RE.sub("", raw.strip()).strip()
+    # "DQ DQ" → "DQ"
     val = re.sub(r"^DQ\s+DQ$", "DQ", val, flags=re.IGNORECASE)
+    # Strip a leading invalid-perf qualifier when it precedes an actual time,
+    # e.g. "NT x10:39.87" → "x10:39.87", "NT 16:28.01" → "16:28.01"
+    val = re.sub(r"^(?:NT|NP|NS|SCR)\s+", "", val, flags=re.IGNORECASE)
+    # Strip leading exhibition marker: "x1:54.66" → "1:54.66"
+    if re.match(r"^[xX]\d", val):
+        val = val[1:]
+    # Two time tokens (seed + finals): take the finals (last) value.
+    # e.g. "11:23.76 11:33.64" → "11:33.64", "59.99 x1:04.33" → "1:04.33"
+    m = _TWO_TIMES_RE.match(val)
+    if m:
+        val = m.group(2)
+        if re.match(r"^[xX]\d", val):
+            val = val[1:]
+    # Strip trailing qualifier code appended to a valid time.
+    # e.g. "1:48.04 D3B" → "1:48.04", "50.58%Q25" → "50.58", "55.91 Q25" → "55.91"
+    m = _TIME_QUALIFIER_RE.match(val)
+    if m:
+        val = m.group(1)
     return val
 
 
@@ -302,12 +330,12 @@ def _classify_age(val: str) -> tuple[str, str]:
 
 def _normalize_event_name(name: str, relay_leg: int = 0, gender: str = "") -> str:
     """
-    - Keep 'Time Trial' suffix so TT results remain in their own event bucket
-      and do not contaminate regular-event rankings.
+    - Strip 'Time Trial' suffix so TT results merge into the regular event bucket.
     - relay_leg >= 1: ensure gender prefix is present.
     - relay_leg >= 2: ensure '(Relay Split)' suffix is present.
     """
     s = re.sub(r"\s+", " ", name).strip()
+    s = re.sub(r"\s+Time Trial$", "", s, flags=re.IGNORECASE)
 
     if relay_leg >= 1:
         has_prefix = bool(re.match(r"^(Men|Women|Mixed)\s+", s, re.IGNORECASE))

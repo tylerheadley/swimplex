@@ -17,7 +17,6 @@ import queue
 import re
 import sys
 import threading
-from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -185,109 +184,12 @@ def _run_parse_pipeline(season: str, gender: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Data quality helpers (calling internals directly, not main())
+# Data quality — delegate to data_quality.build_report()
 # ---------------------------------------------------------------------------
 
 def _build_quality_report(season: str) -> dict:
-    from data_quality import (
-        _normalize_name, _build_name_aliases, _to_seconds,
-        _is_diving, _pace_bounds, _find_near_duplicates,
-        _MANUAL_NAME_ALIASES, _TRAILING_CODE_RE,
-        _TRAILING_SYMS_RE, _DIST_UNIT_RE,
-    )
-    from process_results import _canonicalize_school
-
-    results_path = DATA_DIR / season / "results.json"
-    rows: list[dict] = json.loads(results_path.read_text())
-
-    for r in rows:
-        r["_norm_name"] = _normalize_name(r["name"])
-    aliases = _build_name_aliases([r["_norm_name"] for r in rows])
-    for r in rows:
-        n = aliases.get(r["_norm_name"], r["_norm_name"])
-        r["_norm_name"] = _MANUAL_NAME_ALIASES.get(n, n)
-
-    issues: dict[str, list] = defaultdict(list)
-    indiv_rows = [r for r in rows if not r["is_relay"] or r["relay_leg"] > 0]
-
-    # 1. Suspect times
-    for r in indiv_rows:
-        if _is_diving(r["event_name"]) or r["relay_leg"] >= 2:
-            continue
-        val = _to_seconds(r["finals"])
-        if val is None:
-            continue
-        raw_clean = _TRAILING_SYMS_RE.sub("", r["finals"].strip()).strip()
-        if re.fullmatch(r"\d+", raw_clean):
-            issues["suspect_times"].append({
-                "name": r["_norm_name"], "event": r["event_name"],
-                "finals": r["finals"], "reason": "bare integer (no colon/decimal)",
-                "pdf": r["pdf_file"], "meet": r["meet_name"],
-            })
-            continue
-        bounds = _pace_bounds(r["event_name"])
-        if bounds:
-            lo, hi = bounds
-            if not (lo <= val <= hi):
-                m_dist = _DIST_UNIT_RE.search(r["event_name"])
-                dist = float(m_dist.group(1)) if m_dist else 0
-                per50 = round(val / (dist / 50), 2) if dist else None
-                issues["suspect_times"].append({
-                    "name": r["_norm_name"], "event": r["event_name"],
-                    "finals": r["finals"], "seconds": round(val, 2), "per_50": per50,
-                    "reason": f"pace {per50}s/50 outside [15, 50]",
-                    "pdf": r["pdf_file"], "meet": r["meet_name"],
-                })
-
-    # 2. Near-duplicate names
-    all_norm = list({r["_norm_name"] for r in indiv_rows if r["_norm_name"]})
-    name_school: dict[str, dict] = defaultdict(lambda: defaultdict(int))
-    for r in indiv_rows:
-        name_school[r["_norm_name"]][_canonicalize_school(r["school"])] += 1
-
-    def _cs(name: str) -> str:
-        votes = name_school.get(name, {})
-        return max(votes, key=votes.__getitem__) if votes else ""
-
-    for a, b, sim in _find_near_duplicates(all_norm, threshold=0.80):
-        sa, sb = _cs(a), _cs(b)
-        if sa and sb and sa != sb:
-            continue
-        issues["near_duplicate_names"].append({"name_a": a, "name_b": b, "similarity": sim})
-
-    # 3. Case variants
-    lower_map: dict[str, list] = defaultdict(list)
-    for n in all_norm:
-        lower_map[n.lower()].append(n)
-    for variants in lower_map.values():
-        u = sorted(set(variants))
-        if len(u) > 1:
-            issues["case_variant_names"].append(u)
-
-    # 4. Missing first names
-    seen_miss: set = set()
-    for r in rows:
-        norm = r["_norm_name"]
-        if "," in norm and not norm.split(",", 1)[1].strip():
-            key = (r["name"], r["pdf_file"])
-            if key not in seen_miss:
-                seen_miss.add(key)
-                issues["missing_first_name"].append({
-                    "raw": r["name"], "normalised": norm, "pdf": r["pdf_file"],
-                })
-
-    # 5. Residual name suffixes
-    seen_sfx: set = set()
-    for r in rows:
-        if _TRAILING_CODE_RE.search(r["_norm_name"]):
-            key = (r["name"], r["pdf_file"])
-            if key not in seen_sfx:
-                seen_sfx.add(key)
-                issues["residual_name_suffixes"].append({
-                    "raw": r["name"], "normalised": r["_norm_name"], "pdf": r["pdf_file"],
-                })
-
-    return dict(issues)
+    import data_quality
+    return data_quality.build_report(season)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +228,39 @@ def api_parse():
     )
 
 
+@app.route("/api/data-status")
+def api_data_status():
+    season = request.args.get("season", "2025-26")
+    season_dir = DATA_DIR / season
+
+    # PDFs
+    pdf_dir = season_dir / "pdfs"
+    pdf_files = list(pdf_dir.glob("*.pdf")) if pdf_dir.exists() else []
+    pdf_mtime = max((p.stat().st_mtime for p in pdf_files), default=None)
+
+    # results.json
+    results_path = season_dir / "results.json"
+    results_mtime = results_path.stat().st_mtime if results_path.exists() else None
+
+    # best_performances
+    bp_men   = season_dir / "best_performances_men.json"
+    bp_women = season_dir / "best_performances_women.json"
+
+    import time
+
+    def _fmt(ts):
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else None
+
+    return jsonify({
+        "pdfs":   {"count": len(pdf_files), "last_updated": _fmt(pdf_mtime)},
+        "parsed": {"exists": results_path.exists(), "last_updated": _fmt(results_mtime)},
+        "best_performances": {
+            "men":   {"exists": bp_men.exists(),   "last_updated": _fmt(bp_men.stat().st_mtime   if bp_men.exists()   else None)},
+            "women": {"exists": bp_women.exists(), "last_updated": _fmt(bp_women.stat().st_mtime if bp_women.exists() else None)},
+        },
+    })
+
+
 @app.route("/api/quality")
 def api_quality():
     season = request.args.get("season", "2025-26")
@@ -336,6 +271,19 @@ def api_quality():
         report = _build_quality_report(season)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+    resolutions = _load_resolutions(season)
+    resolved = {(r["name"], r["event"], r.get("value", ""), r["pdf"]) for r in resolutions}
+    for cat in list(report.keys()):
+        report[cat] = [
+            item for item in report[cat]
+            if (item.get("name"), item.get("event"),
+                item.get("raw", item.get("finals", "")),
+                item.get("pdf", "")) not in resolved
+        ]
+        if not report[cat]:
+            del report[cat]
+
     return jsonify(report)
 
 
@@ -343,27 +291,9 @@ def api_quality():
 def api_athletes():
     season = request.args.get("season", "2025-26")
     gender = request.args.get("gender", "Men")
-    bp_path = DATA_DIR / season / f"best_performances_{gender.lower()}.json"
-    if not bp_path.exists():
+    rows = _build_athlete_rows(season, gender)
+    if rows is None:
         return jsonify({"error": "best_performances not found — run parse first"}), 404
-
-    data   = json.loads(bp_path.read_text())
-    edits  = _load_edits(season, gender)
-
-    rows = []
-    for name, info in data["swimmers"].items():
-        for event, perf in info["events"].items():
-            best = edits.get(name, {}).get(event, perf.get("best", perf.get("time", "")))
-            rows.append({
-                "name":   name,
-                "school": info.get("school", ""),
-                "age":    info.get("age", ""),
-                "event":  event,
-                "best":   best,
-                "meet":   perf.get("meet", ""),
-                "date":   perf.get("date", ""),
-                "edited": name in edits and event in edits.get(name, {}),
-            })
     return jsonify(rows)
 
 
@@ -375,11 +305,93 @@ def api_edit_athlete():
     name     = body.get("name", "")
     event    = body.get("event", "")
     new_time = body.get("time", "").strip()
-
     edits = _load_edits(season, gender)
-    edits.setdefault(name, {})[event] = new_time
+    edits.setdefault(name, {})[event] = {"action": "edit", "time": new_time}
     _save_edits(season, gender, edits)
     return jsonify({"ok": True, "name": name, "event": event, "time": new_time})
+
+
+@app.route("/api/athletes/discard", methods=["POST"])
+def api_discard_athlete():
+    body   = request.get_json(force=True)
+    season = body.get("season", "2025-26")
+    gender = body.get("gender", "Men")
+    name   = body.get("name", "")
+    event  = body.get("event", "")
+    edits  = _load_edits(season, gender)
+    edits.setdefault(name, {})[event] = {"action": "discard"}
+    _save_edits(season, gender, edits)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/athletes/restore", methods=["POST"])
+def api_restore_athlete():
+    body   = request.get_json(force=True)
+    season = body.get("season", "2025-26")
+    gender = body.get("gender", "Men")
+    name   = body.get("name", "")
+    event  = body.get("event", "")
+    edits  = _load_edits(season, gender)
+    if name in edits and event in edits[name]:
+        del edits[name][event]
+        if not edits[name]:
+            del edits[name]
+    _save_edits(season, gender, edits)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/athletes/add", methods=["POST"])
+def api_add_athlete():
+    body   = request.get_json(force=True)
+    season = body.get("season", "2025-26")
+    gender = body.get("gender", "Men")
+    name   = body.get("name", "").strip()
+    school = body.get("school", "").strip()
+    age    = body.get("age", "").strip()
+    event  = body.get("event", "").strip()
+    best   = body.get("best", "").strip()
+    meet   = body.get("meet", "Manually added").strip()
+    date   = body.get("date", "").strip()
+    if not name or not event or not best:
+        return jsonify({"error": "name, event, and best are required"}), 400
+    manual = _load_manual(season, gender)
+    if name not in manual:
+        manual[name] = {"school": school, "age": age, "events": {}}
+    manual[name]["events"][event] = {"best": best, "meet": meet, "date": date}
+    _save_manual(season, gender, manual)
+    return jsonify({"ok": True, "name": name, "event": event, "best": best})
+
+
+@app.route("/api/quality/resolve", methods=["POST"])
+def api_quality_resolve():
+    body           = request.get_json(force=True)
+    season         = body.get("season", "2025-26")
+    gender         = body.get("gender", "")
+    name           = body.get("name", "")
+    event          = body.get("event", "")   # may have gender prefix
+    value          = body.get("value", "")   # raw / finals identifying value
+    pdf            = body.get("pdf", "")
+    action         = body.get("action", "discard")   # "discard" | "edit" | "accept_fix"
+    corrected_time = body.get("corrected_time", "").strip()
+
+    resolutions = _load_resolutions(season)
+    resolutions = [r for r in resolutions
+                   if not (r["name"] == name and r["event"] == event
+                           and r.get("value") == value and r["pdf"] == pdf)]
+    resolutions.append({
+        "name": name, "event": event, "value": value, "pdf": pdf,
+        "action": action, "corrected_time": corrected_time or None,
+    })
+    _save_resolutions(season, resolutions)
+
+    # Propagate edit/accept_fix to best-times edits
+    if action in ("edit", "accept_fix") and corrected_time and gender:
+        bare_event = re.sub(r"^(Men|Women|Mixed)\s+", "", event, flags=re.IGNORECASE).strip()
+        edits = _load_edits(season, gender)
+        edits.setdefault(name, {})[bare_event] = {"action": "edit", "time": corrected_time}
+        _save_edits(season, gender, edits)
+
+    return jsonify({"ok": True})
 
 
 @app.route("/api/model/run", methods=["POST"])
@@ -396,52 +408,31 @@ def api_lineup():
 def api_export_csv():
     season = request.args.get("season", "2025-26")
     gender = request.args.get("gender", "Men")
-    bp_path = DATA_DIR / season / f"best_performances_{gender.lower()}.json"
-    if not bp_path.exists():
+    rows = _build_athlete_rows(season, gender)
+    if rows is None:
         return "best_performances not found", 404
-
     import csv
-    data  = json.loads(bp_path.read_text())
-    edits = _load_edits(season, gender)
-
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["name", "school", "age", "event", "best", "meet", "date"])
-    for name, info in data["swimmers"].items():
-        for event, perf in info["events"].items():
-            best = edits.get(name, {}).get(event, perf.get("best", perf.get("time", "")))
-            writer.writerow([
-                name, info.get("school", ""), info.get("age", ""),
-                event, best, perf.get("meet", ""), perf.get("date", ""),
-            ])
+    for r in rows:
+        writer.writerow([r["name"], r["school"], r["age"], r["event"],
+                         r["best"], r["meet"], r["date"]])
     buf.seek(0)
-    return Response(
-        buf.read(),
-        mimetype="text/csv",
-        headers={"Content-Disposition":
-                 f"attachment; filename=best_performances_{gender.lower()}_{season}.csv"},
-    )
+    return Response(buf.read(), mimetype="text/csv",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=best_performances_{gender.lower()}_{season}.csv"})
 
 
 @app.route("/api/export/json")
 def api_export_json():
     season = request.args.get("season", "2025-26")
     gender = request.args.get("gender", "Men")
-    bp_path = DATA_DIR / season / f"best_performances_{gender.lower()}.json"
-    if not bp_path.exists():
+    rows = _build_athlete_rows(season, gender)
+    if rows is None:
         return "best_performances not found", 404
-
-    data  = json.loads(bp_path.read_text())
-    edits = _load_edits(season, gender)
-
-    for name, athlete_edits in edits.items():
-        if name in data["swimmers"]:
-            for event, new_time in athlete_edits.items():
-                if event in data["swimmers"][name]["events"]:
-                    data["swimmers"][name]["events"][event]["best"] = new_time
-
     return Response(
-        json.dumps(data, indent=2),
+        json.dumps(rows, indent=2),
         mimetype="application/json",
         headers={"Content-Disposition":
                  f"attachment; filename=best_performances_{gender.lower()}_{season}.json"},
@@ -458,13 +449,100 @@ def _edits_path(season: str, gender: str) -> Path:
 
 def _load_edits(season: str, gender: str) -> dict:
     p = _edits_path(season, gender)
-    return json.loads(p.read_text()) if p.exists() else {}
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text())
+    out = {}
+    for name, events in raw.items():
+        out[name] = {}
+        for event, val in events.items():
+            out[name][event] = val if isinstance(val, dict) else {"action": "edit", "time": val}
+    return out
 
 
 def _save_edits(season: str, gender: str, edits: dict) -> None:
     p = _edits_path(season, gender)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(edits, indent=2))
+
+
+def _manual_path(season: str, gender: str) -> Path:
+    return DATA_DIR / season / f"manual_additions_{gender.lower()}.json"
+
+def _load_manual(season: str, gender: str) -> dict:
+    p = _manual_path(season, gender)
+    return json.loads(p.read_text()) if p.exists() else {}
+
+def _save_manual(season: str, gender: str, manual: dict) -> None:
+    p = _manual_path(season, gender)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(manual, indent=2))
+
+def _resolutions_path(season: str) -> Path:
+    return DATA_DIR / season / "quality_resolutions.json"
+
+def _load_resolutions(season: str) -> list:
+    p = _resolutions_path(season)
+    return json.loads(p.read_text()) if p.exists() else []
+
+def _save_resolutions(season: str, resolutions: list) -> None:
+    p = _resolutions_path(season)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(resolutions, indent=2))
+
+
+def _build_athlete_rows(season: str, gender: str):
+    """Build athlete rows from scraped data + edits + manual additions. Returns None if bp missing."""
+    bp_path = DATA_DIR / season / f"best_performances_{gender.lower()}.json"
+    if not bp_path.exists():
+        return None
+    data   = json.loads(bp_path.read_text())
+    edits  = _load_edits(season, gender)
+    manual = _load_manual(season, gender)
+
+    rows = []
+    seen = set()  # (name, event) already covered by scraped data
+
+    for name, info in data["swimmers"].items():
+        for event, perf in info["events"].items():
+            edit = edits.get(name, {}).get(event)
+            if edit and edit.get("action") == "discard":
+                continue
+            best = edit["time"] if edit and edit.get("action") == "edit" else perf.get("best", perf.get("time", ""))
+            rows.append({
+                "name":   name,
+                "school": info.get("school", ""),
+                "age":    info.get("age", ""),
+                "event":  event,
+                "best":   best,
+                "meet":   perf.get("meet", ""),
+                "date":   perf.get("date", ""),
+                "edited": bool(edit and edit.get("action") == "edit"),
+                "manual": False,
+            })
+            seen.add((name, event))
+
+    for name, info in manual.items():
+        for event, perf in info["events"].items():
+            if (name, event) in seen:
+                continue
+            edit = edits.get(name, {}).get(event)
+            if edit and edit.get("action") == "discard":
+                continue
+            best = edit["time"] if edit and edit.get("action") == "edit" else perf.get("best", "")
+            rows.append({
+                "name":   name,
+                "school": info.get("school", ""),
+                "age":    info.get("age", ""),
+                "event":  event,
+                "best":   best,
+                "meet":   perf.get("meet", "Manually added"),
+                "date":   perf.get("date", ""),
+                "edited": bool(edit and edit.get("action") == "edit"),
+                "manual": True,
+            })
+
+    return rows
 
 
 # ---------------------------------------------------------------------------
