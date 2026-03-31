@@ -10,6 +10,9 @@ set Stroke = {"Free", "Back", "Breast", "Fly"};
 set Place := 1..card(Athletes); 
 set Place_Relay := 1..card(Team);
 
+param Max_Rank := min(16, card(Athletes)-1); 
+set Place_Rank := 1..Max_Rank;
+
 # SOLO PARAMS
 param solo_time {Athletes, SoloEvents} >= 0;
 param solo_event_lim = 3;
@@ -17,7 +20,7 @@ param solo_points {Place};
 
 # Relay Params
 param leg_time {Athletes, RelayEvents} >= 0;
-param relay_enroll_ct >= 0 integer;
+param relay_enroll_ct = 4;
 param relay_points {Place_Relay, Level};
 param relay_event_lim = 5;
 
@@ -38,25 +41,27 @@ var placement_solo {SoloEvents, Athletes} >= 0 integer;
 
 # Relay Vars
 var athlete_swims_event_rel {Athletes, RelayEvents, Level} binary;
-var is_team_faster {Team, RelayEvents, Level} binary;
-var is_rank_p {Place_Relay, RelayEvents, Level} binary;
+var is_team_faster {t1 in Team, t2 in Team, RelayEvents, Level : t1 <> t2} binary;
+var is_rank_p {Team, Place_Relay, RelayEvents, Level} binary;
 var total_rel_time {RelayEvents, Level, Team} >= 0;
-var placement {RelayEvents, Level} >= 0 integer;
+var placement {Team, RelayEvents, Level} >= 0 integer;
+var relay_enroll {Team, RelayEvents, Level} binary;
 
 # Medley Vars
 var athlete_swims_event_med {Athletes, MedleyEvents, Level, Stroke} binary;
-var is_team_faster_med {Team, MedleyEvents, Level} binary;
-var is_rank_p_med {Place_Relay, MedleyEvents, Level} binary;
+var is_team_faster_med {t1 in Team, t2 in Team, MedleyEvents, Level : t1 <> t2} binary;
+var is_rank_p_med {Team, Place_Relay, MedleyEvents, Level} binary;
 var total_med_time {MedleyEvents, Level, Team} >= 0;
-var placement_med {MedleyEvents, Level} >= 0 integer;
+var placement_med {Team, MedleyEvents, Level} >= 0 integer;
+var med_relay_enroll {Team, MedleyEvents, Level} binary;
 
 # Overall Vars
 var scorer {Athletes, Team} binary;
 
 maximize TotalPoints:     
-    sum{r in RelayEvents, l in Level, p in Place_Relay} (relay_points[p, l] * is_rank_p[p, r, l]) + 
+    sum{r in RelayEvents, l in Level, p in Place_Relay} (relay_points[p, l] * is_rank_p[home_team, p, r, l]) + 
     sum{e in SoloEvents, p in Place, a in AthletesTeam[home_team]} (solo_points[p]*is_ath_rank_p[p, e, a]) +
-    sum{e in MedleyEvents, l in Level, p in Place_Relay} (relay_points[p, l] * is_rank_p_med[p, e, l]);
+    sum{e in MedleyEvents, l in Level, p in Place_Relay} (relay_points[p, l] * is_rank_p_med[home_team, p, e, l]);
 
 # OVERALL CONSTRAINTS
 
@@ -91,15 +96,19 @@ subject to Faster_Athlete_Const{e in SoloEvents, a1 in Athletes, a2 in Athletes 
 solo_time[a1,e] <= solo_time[a2,e] + (M * (1 - is_athlete_faster[a1,a2,e]));
 # NOTE THIS CHANGE ON OVERLEAF
 
-
+subject to Faster_Athlete_Const_two{e in SoloEvents, a1 in Athletes, a2 in Athletes : a1 <> a2}:
+solo_time[a1,e] + (M * is_athlete_faster[a1,a2,e]) >= solo_time[a2,e];
 # Set numerical_placement caccordingly (THIS IS QUADRATIC)
 
 subject to Set_Placement_Solo{e in SoloEvents, a1 in Athletes}:
-placement_solo[e,a1] <= 1 + (sum{a2 in Athletes: a2 <> a1} is_athlete_faster[a2,a1,e]) + (card(Athletes) * (1-athlete_swims_event_solo[a1,e]));
+placement_solo[e,a1] <= 
+(1 + (sum{a2 in Athletes: a2 <> a1} is_athlete_faster[a2,a1,e])) + (2 * card(Athletes) * (1-athlete_swims_event_solo[a1,e]));
 # NOTE THIS CHANGE IN OVERLEAF
 
-subject to Bound_Placement_Solo{e in SoloEvents, a1 in Athletes}:
-placement_solo[e,a1] <= card(Athletes); 
+subject to Set_Placement_Solo_two{e in SoloEvents, a1 in Athletes}:
+placement_solo[e,a1] >=
+(1 + (sum{a2 in Athletes: a2 <> a1} is_athlete_faster[a2,a1,e])) - (2 * card(Athletes) * (1-athlete_swims_event_solo[a1,e]));
+# NOTE THIS CHANGE IN OVERLEAF
 
 subject to Lock_Placement_Solo{e in SoloEvents, a1 in Athletes}:
 placement_solo[e,a1] >= card(Athletes) * (1-athlete_swims_event_solo[a1,e]); 
@@ -111,6 +120,9 @@ sum{p in Place} is_ath_rank_p[p,e,a] = 1;
 
 subject to Set_Placement_Rank_Solo{e in SoloEvents, a in Athletes}:
 sum{p in Place} (p * is_ath_rank_p[p,e,a]) = placement_solo[e,a];
+
+subject to One_Rank{e in SoloEvents, p in Place_Rank}:
+sum{a in Athletes} is_ath_rank_p[p,e,a] <= 1;
 
 # RELAY and MEDLEY CONSTRAINTS
 
@@ -127,26 +139,33 @@ sum{a in AthletesTeam[t]} (athlete_swims_event_rel[a, r, l]*leg_time[a, r]) = to
 
 # Number of Participants per Relay
 subject to Participant_Limit_Relay{r in RelayEvents, l in Level, t in Team}:
-sum{a in AthletesTeam[t]} athlete_swims_event_rel[a, r, l] = relay_enroll_ct;
+sum{a in AthletesTeam[t]} athlete_swims_event_rel[a, r, l] = relay_enroll_ct * relay_enroll[t, r, l];
+
+subject to Set_Relay_Enroll {r in RelayEvents, l in Level, t in Team, a in AthletesTeam[t]}:
+athlete_swims_event_rel[a, r, l] <= relay_enroll[t, r, l]; 
 
 # Mutually Exclusive Levels
 subject to Seperate_AB{t in Team, a in AthletesTeam[t], r in RelayEvents}:
 sum{l in Level} athlete_swims_event_rel[a, r, l] <= 1;
 
 # Define Faster Times
-subject to Faster_Team_Const{r in RelayEvents, l in Level, t in Team : t <> home_team}:
-total_rel_time[r, l, home_team] >= ((M*(is_team_faster[t, r, l]) + total_rel_time[r,l,t]));
+subject to Faster_Team_Const{e in RelayEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+total_rel_time[e,l,t1] <= total_rel_time[e,l,t2] + (M * (1 - is_team_faster[t1, t2,e,l]));
+# NOTE THIS CHANGE ON OVERLEAF
+
+subject to Faster_Team_Const_two{e in RelayEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+total_rel_time[e,l,t1] + (M * (is_team_faster[t1, t2,e,l])) >= total_rel_time[e,l,t2];
 
 # Set numerical placement
-subject to Set_Placement{r in RelayEvents, l in Level}:
-placement[r, l] = 1 + sum{t in Team: t <> home_team} is_team_faster[t, r, l];
+subject to Set_Placement{r in RelayEvents, l in Level, t1 in Team}:
+placement[t1, r, l] = 1 + sum{t2 in Team: t2 <> t1} is_team_faster[t2, t1, r, l];
 
 # One Hot Placement
-subject to One_Placement{r in RelayEvents, l in Level}:
-sum{p in Place_Relay} is_rank_p[p,r,l] = 1;
+subject to One_Placement{r in RelayEvents, l in Level, p in Place_Relay}:
+sum{t in Team} is_rank_p[t,p,r,l] = 1;
 
-subject to Set_Placement_Rank{r in RelayEvents, l in Level}:
-sum{p in Place_Relay}(p * is_rank_p[p,r,l]) = placement[r,l];
+subject to Set_Placement_Rank{r in RelayEvents, l in Level, t in Team}:
+sum{p in Place_Relay}(p * is_rank_p[t,p,r,l]) = placement[t,r,l];
 
 # MEDLEY CONSTRAINTS
 
@@ -156,23 +175,29 @@ sum{a in AthletesTeam[t], s in Stroke} (athlete_swims_event_med[a, e, l, s]*leg_
 
 # Number of Participants per Medley
 subject to Participant_Limit_Medley{e in MedleyEvents, l in Level, t in Team}:
-sum{a in AthletesTeam[t], s in Stroke} athlete_swims_event_med[a, e, l, s] = relay_enroll_ct;
+sum{a in AthletesTeam[t], s in Stroke} athlete_swims_event_med[a, e, l, s] = relay_enroll_ct * med_relay_enroll[t,e,l];
+
+subject to Set_Medley_Enroll {e in MedleyEvents, l in Level, t in Team, a in AthletesTeam[t]}:
+sum{s in Stroke} athlete_swims_event_med[a, e, l, s] <= med_relay_enroll[t, e, l];
 
 # Mutually Exclusive Levels
 subject to Seperate_AB_Stroke{t in Team, a in AthletesTeam[t], e in MedleyEvents}:
 sum{l in Level, s in Stroke} athlete_swims_event_med[a, e, l, s] <= 1;
 
 # Define Faster Times
-subject to Faster_Team_Const_Med{e in MedleyEvents, l in Level, t in Team : t <> home_team}:
-total_med_time[e, l, home_team] >= ((M*(is_team_faster_med[t, e, l]) + total_med_time[e,l,t]));
+subject to Faster_Team_Const_Med{e in MedleyEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+total_med_time[e,l,t1] <= total_med_time[e,l,t2] + (M * (1 - is_team_faster_med[t1, t2,e,l]));
+
+subject to Faster_Team_Const_Med_two{e in MedleyEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+total_med_time[e,l,t1] + (M * (is_team_faster_med[t1, t2,e,l])) >= total_med_time[e,l,t2];
 
 # Set numerical placement
-subject to Set_Placement_Med{e in MedleyEvents, l in Level}:
-placement_med[e, l] = 1 + sum{t in Team: t <> home_team} is_team_faster_med[t, e, l];
+subject to Set_Placement_Med{e in MedleyEvents, l in Level, t1 in Team}:
+placement_med[t1, e, l] = 1 + sum{t2 in Team: t2 <> t1} is_team_faster_med[t2, t1, e, l];
 
 # One Hot Placement
-subject to One_Placement_Med{e in MedleyEvents, l in Level}:
-sum{p in Place_Relay} is_rank_p_med[p,e,l] = 1;
+subject to One_Placement_Med{e in MedleyEvents, l in Level, p in Place_Relay}:
+sum{t in Team} is_rank_p_med[t,p,e,l] = 1;
 
-subject to Set_Placement_Rank_Med{e in MedleyEvents, l in Level}:
-sum{p in Place_Relay}(p * is_rank_p_med[p,e,l]) = placement_med[e,l];
+subject to Set_Placement_Rank_Med{e in MedleyEvents, l in Level, t in Team}:
+sum{p in Place_Relay}(p * is_rank_p_med[t,p,e,l]) = placement_med[t,e,l];
