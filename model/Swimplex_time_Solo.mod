@@ -20,7 +20,7 @@ param solo_points {Place};
 
 # Relay Params
 param leg_time {Athletes, RelayEvents} >= 0;
-param relay_enroll_ct = 4;
+param relay_enroll_ct = 2;
 param relay_points {Place_Relay, Level};
 param relay_event_lim = 5;
 

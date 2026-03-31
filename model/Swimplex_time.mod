@@ -30,7 +30,7 @@ param leg_time_med {Athletes, MedleyEvents, Stroke} >= 0;
 # Overall params
 param M = 10000;
 param total_event_lim = 7;
-param enrollment_cap = 16;
+param enrollment_cap = 160;
 param home_team symbolic in Team;
 
 # Solo Vars
@@ -43,7 +43,7 @@ var placement_solo {SoloEvents, Athletes} >= 0 integer;
 var athlete_swims_event_rel {Athletes, RelayEvents, Level} binary;
 var is_team_faster {t1 in Team, t2 in Team, RelayEvents, Level : t1 <> t2} binary;
 var is_rank_p {Team, Place_Relay, RelayEvents, Level} binary;
-var total_rel_time {RelayEvents, Level, Team} >= 0;
+var total_rel_time {RelayEvents, Level, Team} >= 0.1; # TRACK CHANGES
 var placement {Team, RelayEvents, Level} >= 0 integer;
 var relay_enroll {Team, RelayEvents, Level} binary;
 
@@ -51,7 +51,7 @@ var relay_enroll {Team, RelayEvents, Level} binary;
 var athlete_swims_event_med {Athletes, MedleyEvents, Level, Stroke} binary;
 var is_team_faster_med {t1 in Team, t2 in Team, MedleyEvents, Level : t1 <> t2} binary;
 var is_rank_p_med {Team, Place_Relay, MedleyEvents, Level} binary;
-var total_med_time {MedleyEvents, Level, Team} >= 0;
+var total_med_time {MedleyEvents, Level, Team} >= 0.1; # TRACK CHANGES
 var placement_med {Team, MedleyEvents, Level} >= 0 integer;
 var med_relay_enroll {Team, MedleyEvents, Level} binary;
 

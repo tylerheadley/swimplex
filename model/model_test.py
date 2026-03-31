@@ -2,12 +2,12 @@ from amplpy import *
 import csv
 
 def generate_dat():
-    # Create test data with two teams: Fast and Slow, each with 4 athletes
+    # Create test data with two teams: Fast and Slow, each with 8 athletes
     # Fast team always faster than Slow team in all events
     
     teams = ['Fast', 'Slow']
-    athletes_fast = ['Fast1', 'Fast2', 'Fast3', 'Fast4']
-    athletes_slow = ['Slow1', 'Slow2', 'Slow3', 'Slow4']
+    athletes_fast = ['Fast1', 'Fast2', 'Fast3', 'Fast4', 'Fast5', 'Fast6', 'Fast7', 'Fast8']
+    athletes_slow = ['Slow1', 'Slow2', 'Slow3', 'Slow4', 'Slow5', 'Slow6', 'Slow7', 'Slow8']
     athletes = athletes_fast + athletes_slow
     
     solo_events = ['50Free', '100Free', '200Free', '400Free']
@@ -49,7 +49,7 @@ def generate_dat():
                 leg_time_med[(athlete, event, stroke)] = base_times['50Free'] + offset  # simplified
     
     # Points
-    solo_points = {1: 20, 2: 17, 3: 16, 4: 15, 5: 14, 6: 13, 7: 12, 8: 11}
+    solo_points = {1: 20, 2: 17, 3: 16, 4: 15, 5: 14, 6: 13, 7: 12, 8: 11, 9: 10, 10: 9, 11: 8, 12: 7, 13: 6, 14: 5, 15: 4, 16: 3}
     relay_points = {(1, 'A'): 40, (1, 'B'): 34, (2, 'A'): 34, (2, 'B'): 28}
     
     # Write to file
@@ -189,8 +189,8 @@ def display_and_save_variables(ampl, filename='variables.csv'):
                 writer.writerow([name, index_str, value])
                 total_entries += 1
     
-    print(f"Saved {len(variables)} variables with {total_entries} total entries to {filename}")
-    print(f"Variables: {list(variables)}")
+    #print(f"Saved {len(variables)} variables with {total_entries} total entries to {filename}")
+    #print(f"Variables: {list(variables)}")
 
 generate_dat()
 ampl = AMPL()
