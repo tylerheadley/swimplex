@@ -144,11 +144,11 @@ def test_fast_team(ampl):
             # Sort by placement
             sorted_values = sorted(values, key=lambda x: x[1])
             # Check consecutive placements
-            # expected_placements = list(range(1, len(sorted_values) + 1))
-            # actual_placements = [p for _, p in sorted_values]
-            # if actual_placements != expected_placements:
-            #     print("Consecutive")
-            #     return False
+            expected_placements = list(range(1, len(sorted_values) + 1))
+            actual_placements = [p for _, p in sorted_values]
+            if actual_placements != expected_placements:
+                print("Consecutive")
+                return False
             # Check home_team_roster athletes come first
             home_count = sum(1 for a, _ in sorted_values if a in home_team_roster)
             if home_count > 0:

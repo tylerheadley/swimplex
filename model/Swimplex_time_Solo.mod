@@ -38,6 +38,7 @@ var athlete_swims_event_solo {Athletes, SoloEvents} binary;
 var is_athlete_faster {a1 in Athletes, a2 in Athletes, SoloEvents : a1 <> a2} binary;
 var is_ath_rank_p {Place, SoloEvents, Athletes} binary;
 var placement_solo {SoloEvents, Athletes} >= 0 integer;
+var is_faster_and_swimming {a1 in Athletes, a2 in Athletes, SoloEvents : a1 <> a2} binary;
 
 
 # Overall Vars
@@ -68,16 +69,26 @@ solo_time[a1,e] <= solo_time[a2,e] + (M * (1 - is_athlete_faster[a1,a2,e]));
 
 subject to Faster_Athlete_Const_two{e in SoloEvents, a1 in Athletes, a2 in Athletes : a1 <> a2}:
 solo_time[a1,e] + (M * is_athlete_faster[a1,a2,e]) >= solo_time[a2,e];
-# Set numerical_placement caccordingly (THIS IS QUADRATIC)
 
+# Set is_faster_and_swimming
+subject to is_Faster{e in SoloEvents, a1 in Athletes, a2 in Athletes : a1 <> a2}:
+is_faster_and_swimming[a2,a1,e] <= is_athlete_faster[a2,a1,e];
+
+subject to is_Swimming{e in SoloEvents, a1 in Athletes, a2 in Athletes : a1 <> a2}:
+is_faster_and_swimming[a2,a1,e] <= athlete_swims_event_solo[a2,e];
+
+subject to is_And{e in SoloEvents, a1 in Athletes, a2 in Athletes : a1 <> a2}:
+is_faster_and_swimming[a2,a1,e] >= athlete_swims_event_solo[a2,e] + is_athlete_faster[a2,a1,e] - 1;
+
+# Set numerical_placement caccordingly (THIS IS QUADRATIC)
 subject to Set_Placement_Solo{e in SoloEvents, a1 in Athletes}:
 placement_solo[e,a1] <= 
-(1 + (sum{a2 in Athletes: a2 <> a1} is_athlete_faster[a2,a1,e])) + (2 * card(Athletes) * (1-athlete_swims_event_solo[a1,e]));
+(1 + (sum{a2 in Athletes: a2 <> a1} is_faster_and_swimming[a2,a1,e])) + (2 * card(Athletes) * (1-athlete_swims_event_solo[a1,e]));
 # NOTE THIS CHANGE IN OVERLEAF
 
 subject to Set_Placement_Solo_two{e in SoloEvents, a1 in Athletes}:
 placement_solo[e,a1] >=
-(1 + (sum{a2 in Athletes: a2 <> a1} is_athlete_faster[a2,a1,e])) - (2 * card(Athletes) * (1-athlete_swims_event_solo[a1,e]));
+(1 + (sum{a2 in Athletes: a2 <> a1} is_faster_and_swimming[a2,a1,e])) - (2 * card(Athletes) * (1-athlete_swims_event_solo[a1,e]));
 # NOTE THIS CHANGE IN OVERLEAF
 
 subject to Lock_Placement_Solo{e in SoloEvents, a1 in Athletes}:
