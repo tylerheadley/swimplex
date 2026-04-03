@@ -44,17 +44,19 @@ var is_faster_and_swimming {a1 in Athletes, a2 in Athletes, SoloEvents : a1 <> a
 var athlete_swims_event_rel {Athletes, RelayEvents, Level} binary;
 var is_team_faster {t1 in Team, t2 in Team, RelayEvents, Level : t1 <> t2} binary;
 var is_rank_p {Team, Place_Relay, RelayEvents, Level} binary;
-var total_rel_time {RelayEvents, Level, Team} >= 0.1; # TRACK CHANGES
+var total_rel_time {RelayEvents, Level, Team} >= 0;
 var placement {Team, RelayEvents, Level} >= 0 integer;
 var relay_enroll {Team, RelayEvents, Level} binary;
+var is_faster_and_swimming_rel {t1 in Team, t2 in Team, RelayEvents, Level : t1 <> t2} binary;
 
 # Medley Vars
 var athlete_swims_event_med {Athletes, MedleyEvents, Level, Stroke} binary;
 var is_team_faster_med {t1 in Team, t2 in Team, MedleyEvents, Level : t1 <> t2} binary;
 var is_rank_p_med {Team, Place_Relay, MedleyEvents, Level} binary;
-var total_med_time {MedleyEvents, Level, Team} >= 0.1; # TRACK CHANGES
+var total_med_time {MedleyEvents, Level, Team} >= 0;
 var placement_med {Team, MedleyEvents, Level} >= 0 integer;
 var med_relay_enroll {Team, MedleyEvents, Level} binary;
+var is_faster_and_swimming_med {t1 in Team, t2 in Team, MedleyEvents, Level: t1 <> t2} binary;
 
 # Overall Vars
 var scorer {Athletes, Team} binary;
@@ -169,9 +171,19 @@ total_rel_time[e,l,t1] <= total_rel_time[e,l,t2] + (M * (1 - is_team_faster[t1, 
 subject to Faster_Team_Const_two{e in RelayEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
 total_rel_time[e,l,t1] + (M * (is_team_faster[t1, t2,e,l])) >= total_rel_time[e,l,t2];
 
+# Set is_faster_and_swimming
+subject to is_Faster_Rel{e in RelayEvents,l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+is_faster_and_swimming_rel[t2,t1,e,l] <= is_team_faster[t2,t1,e,l];
+
+subject to is_Swimming_Rel{e in RelayEvents,l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+is_faster_and_swimming_rel[t2,t1,e,l] <= relay_enroll[t2,e,l];
+
+subject to is_And_Rel{e in RelayEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+is_faster_and_swimming_rel[t2,t1,e,l] >= relay_enroll[t2,e,l] + is_team_faster[t2,t1,e,l] - 1;
+
 # Set numerical placement
 subject to Set_Placement{r in RelayEvents, l in Level, t1 in Team}:
-placement[t1, r, l] = 1 + sum{t2 in Team: t2 <> t1} is_team_faster[t2, t1, r, l];
+placement[t1, r, l] = 1 + sum{t2 in Team: t2 <> t1} is_faster_and_swimming_rel[t2, t1, r, l];
 
 # One Hot Placement
 subject to One_Placement{r in RelayEvents, l in Level, p in Place_Relay}:
@@ -204,9 +216,20 @@ total_med_time[e,l,t1] <= total_med_time[e,l,t2] + (M * (1 - is_team_faster_med[
 subject to Faster_Team_Const_Med_two{e in MedleyEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
 total_med_time[e,l,t1] + (M * (is_team_faster_med[t1, t2,e,l])) >= total_med_time[e,l,t2];
 
+
+# Set is_faster_and_swimming
+subject to is_Faster_Med{e in MedleyEvents,l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+is_faster_and_swimming_med[t2,t1,e,l] <= is_team_faster_med[t2,t1,e,l];
+
+subject to is_Swimming_Med{e in MedleyEvents,l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+is_faster_and_swimming_med[t2,t1,e,l] <= med_relay_enroll[t2,e,l];
+
+subject to is_And_Med{e in MedleyEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
+is_faster_and_swimming_med[t2,t1,e,l] >= med_relay_enroll[t2,e,l] + is_team_faster_med[t2,t1,e,l] - 1;
+
 # Set numerical placement
 subject to Set_Placement_Med{e in MedleyEvents, l in Level, t1 in Team}:
-placement_med[t1, e, l] = 1 + sum{t2 in Team: t2 <> t1} is_team_faster_med[t2, t1, e, l];
+placement_med[t1, e, l] = 1 + sum{t2 in Team: t2 <> t1} is_faster_and_swimming_med[t2, t1, e, l];
 
 # One Hot Placement
 subject to One_Placement_Med{e in MedleyEvents, l in Level, p in Place_Relay}:
