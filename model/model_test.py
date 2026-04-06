@@ -2,112 +2,112 @@ from amplpy import *
 import csv
 
 def generate_dat():
-    # Create test data with two teams: Fast and Slow, each with 8 athletes
+    # Create test data with two teams: Fast and Slow, each with 8 athletes plus specialists
     # Fast team always faster than Slow team in all events
+    # Good1 (Fast) and Bad1 (Slow) are divers only
     
     teams = ['Fast', 'Slow']
-    athletes_fast = ['Fast1', 'Fast2', 'Fast3', 'Fast4', 'Fast5', 'Fast6', 'Fast7', 'Fast8']
-    athletes_slow = ['Slow1', 'Slow2', 'Slow3', 'Slow4', 'Slow5', 'Slow6', 'Slow7', 'Slow8']
+    athletes_fast = ['Fast1', 'Fast2', 'Fast3', 'Fast4', 'Fast5', 'Fast6', 'Fast7', 'Fast8', 'Good1']
+    athletes_slow = ['Slow1', 'Slow2', 'Slow3', 'Slow4', 'Slow5', 'Slow6', 'Slow7', 'Slow8', 'Bad1']
     athletes = athletes_fast + athletes_slow
     
     solo_events = ['50Free', '100Free', '200Free', '400Free']
     relay_events = ['200FreeRelay', '400FreeRelay']
     medley_events = ['200MedRelay', '400MedRelay']
-    events = solo_events + relay_events + medley_events
+    diving_events = ['1mDiving']
+    events = solo_events + relay_events + medley_events + diving_events
     
-    strokes = ['Free', 'Back', 'Breast', 'Fly']
+    strokes = ['Back', 'Breast', 'Fly', 'Free']
     
-    # Times: Fast team 20s for 50, 40s for 100, etc.; Slow team 5s slower
+    # Times: Fast team 20s for 50, etc.; Slow team 5s slower; Good1/Bad1 5s slower than Slow
     base_times = {'50Free': 20.0, '100Free': 40.0, '200Free': 80.0, '400Free': 160.0}
     
     solo_time = {}
+    leg_time = {}
+    leg_time_med = {}
     for athlete in athletes:
-        team = 'Fast' if athlete in athletes_fast else 'Slow'
-        offset = 0 if team == 'Fast' else 5.0
+        if athlete in ['Good1', 'Bad1']:
+            offset = 10.0  # Bad swimmers
+        elif 'Fast' in athlete:
+            offset = 0.0
+        else:
+            offset = 5.0
         for event in solo_events:
             solo_time[(athlete, event)] = base_times[event] + offset
-    
-    # Relay leg times: similar, each leg
-    leg_time = {}
-    for athlete in athletes:
-        team = 'Fast' if athlete in athletes_fast else 'Slow'
-        offset = 0 if team == 'Fast' else 5.0
         for event in relay_events:
-            if event == '200FreeRelay':
-                leg_time[(athlete, event)] = (base_times['50Free'] + offset) * 4 / 4  # average per leg
-            elif event == '400FreeRelay':
-                leg_time[(athlete, event)] = (base_times['100Free'] + offset) * 4 / 4
+            leg_time[(athlete, event)] = base_times['50Free'] + offset if '200' in event else base_times['100Free'] + offset
+        for event in medley_events:
+            for stroke in strokes:
+                leg_time_med[(athlete, event, stroke)] = base_times['50Free'] + offset
     
-    # Medley leg times
-    leg_time_med = {}
-    medley_strokes = {'200MedRelay': ['Back', 'Breast', 'Fly', 'Free'], '400MedRelay': ['Back', 'Breast', 'Fly', 'Free']}
-    for event in medley_events:
-        for stroke in medley_strokes[event]:
-            for athlete in athletes:
-                team = 'Fast' if athlete in athletes_fast else 'Slow'
-                offset = 0 if team == 'Fast' else 5.0
-                leg_time_med[(athlete, event, stroke)] = base_times['50Free'] + offset  # simplified
+    # Diving scores: Good1/Bad1 high, others low
+    diving_score = {}
+    for athlete in athletes:
+        score = 90.0 if athlete in ['Good1', 'Bad1'] else 50.0
+        for event in diving_events:
+            diving_score[(athlete, event)] = score
     
-    # Points
-    solo_points = {1: 20, 2: 17, 3: 16, 4: 15, 5: 14, 6: 13, 7: 12, 8: 11, 9: 10, 10: 9, 11: 8, 12: 7, 13: 6, 14: 5, 15: 4, 16: 3}
-    relay_points = {(1, 'A'): 40, (1, 'B'): 34, (2, 'A'): 34, (2, 'B'): 28}
+    # Generate points dynamically based on set sizes
+    # Solo points: starts at 20 for 1st place, decreases (3pt drop to 2nd, then 1pt per place)
+    solo_points = {}
+    for place in range(1, len(athletes) + 1):
+        if place == 1:
+            solo_points[place] = 20
+        elif place == 2:
+            solo_points[place] = 17
+        else:
+            solo_points[place] = max(3, 17 - (place - 2))  # Minimum 3 points
+    
+    # Relay points: indexed by team place and level
+    # Level A scores higher than Level B; scores decrease by team place
+    relay_points = {}
+    for place in range(1, len(teams) + 1):
+        level_a_points = 40 - (place - 1) * 6  # 40, 34, 28, ...
+        level_b_points = 34 - (place - 1) * 6  # 34, 28, 22, ...
+        relay_points[(place, 'A')] = max(1, level_a_points)  # Minimum 1 point
+        relay_points[(place, 'B')] = max(1, level_b_points)  # Minimum 1 point
     
     # Write to file
     with open('test_data.dat', 'w') as f:
         f.write('data;\n')
-        f.write('set Events :=\n')
-        for event in events:
-            f.write(f"     '{event}'\n")
-        f.write(';\n')
         
-        f.write('set Athletes :=\n')
-        for athlete in athletes:
-            f.write(f"     '{athlete}'\n")
-        f.write(';\n')
+        # Sets
+        for set_name, items in [
+            ('Events', events),
+            ('Athletes', athletes),
+            ('Team', teams),
+            ('RelayEvents', relay_events),
+            ('SoloEvents', solo_events),
+            ('MedleyEvents', medley_events),
+            ('DivingEvents', diving_events)
+        ]:
+            f.write(f'set {set_name} :=\n')
+            for item in items:
+                f.write(f"     '{item}'\n")
+            f.write(';\n')
         
-        f.write('set Team :=\n')
+        # AthletesTeam
         for team in teams:
-            f.write(f"     '{team}'\n")
-        f.write(';\n')
-        
-        for team in teams:
-            f.write(f"set AthletesTeam ['{team}'] :=\n")
             team_athletes = athletes_fast if team == 'Fast' else athletes_slow
+            f.write(f"set AthletesTeam ['{team}'] :=\n")
             for athlete in team_athletes:
                 f.write(f"     '{athlete}'\n")
             f.write(';\n')
         
-        f.write('set RelayEvents :=\n')
-        for event in relay_events:
-            f.write(f"     '{event}'\n")
-        f.write(';\n')
-        
-        f.write('set SoloEvents :=\n')
-        for event in solo_events:
-            f.write(f"     '{event}'\n")
-        f.write(';\n')
-        
-        f.write('set MedleyEvents :=\n')
-        for event in medley_events:
-            f.write(f"     '{event}'\n")
-        f.write(';\n')
-        
+        # Params
         f.write('param home_team := "Fast";\n')
         
-        f.write('param solo_time :=\n')
-        for (athlete, event), time in solo_time.items():
-            f.write(f"     ['{athlete}','{event}'] {time}\n")
-        f.write(';\n')
-        
-        f.write('param leg_time :=\n')
-        for (athlete, event), time in leg_time.items():
-            f.write(f"     ['{athlete}','{event}'] {time}\n")
-        f.write(';\n')
-        
-        f.write('param leg_time_med :=\n')
-        for (athlete, event, stroke), time in leg_time_med.items():
-            f.write(f"     ['{athlete}','{event}','{stroke}'] {time}\n")
-        f.write(';\n')
+        for param_name, data in [
+            ('solo_time', solo_time),
+            ('leg_time', leg_time),
+            ('leg_time_med', leg_time_med),
+            ('diving_score', diving_score)
+        ]:
+            f.write(f'param {param_name} :=\n')
+            for key, value in data.items():
+                key_str = ','.join(f"'{k}'" if isinstance(k, str) else str(k) for k in key)
+                f.write(f"     [{key_str}] {value}\n")
+            f.write(';\n')
         
         f.write('param solo_points :=\n')
         for place, points in solo_points.items():
@@ -118,6 +118,14 @@ def generate_dat():
         for (place, level), points in relay_points.items():
             f.write(f"     [{place},'{level}'] {points}\n")
         f.write(';\n')
+        
+        # Fix Good1 and Bad1
+        f.write('# Fix Good1 and Bad1 to not swim in solo events and only dive\n')
+        for athlete in ['Good1', 'Bad1']:
+            f.write(f"let {{e in SoloEvents}} athlete_swims_event_solo['{athlete}',e] := 0;\n")
+            f.write(f"let {{e in DivingEvents}} athlete_dives_event['{athlete}',e] := 1;\n")
+            f.write(f"fix {{e in SoloEvents}} athlete_swims_event_solo['{athlete}',e];\n")
+            f.write(f"fix {{e in DivingEvents}} athlete_dives_event['{athlete}',e];\n")
 
 def test_fast_team(ampl):
     """
