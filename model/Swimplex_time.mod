@@ -35,7 +35,7 @@ param diving_score_const = 1/3;
 # Overall params
 param M = 10000;
 param total_event_lim = 7;
-param enrollment_cap = 160;
+param enrollment_cap = 18;
 param home_team symbolic in Team;
 
 # Solo Vars
@@ -80,6 +80,12 @@ maximize TotalPoints:
     sum{e in SoloEvents, p in Place, a in AthletesTeam[home_team]} (solo_points[p]*is_ath_rank_p[p, e, a]) +
     sum{e in MedleyEvents, l in Level, p in Place_Relay} (relay_points[p, l] * is_rank_p_med[home_team, p, e, l]) +
     sum{e in DivingEvents, p in Place, a in AthletesTeam[home_team]} (solo_points[p]*is_ath_rank_p_dive[p, e, a]);
+
+minimize TotalTime:
+    sum{r in RelayEvents, l in Level} (total_rel_time[r,l,home_team]) + 
+    sum{e in SoloEvents, a in AthletesTeam[home_team]} (athlete_swims_event_solo[a,e]*solo_time[a,e]) +
+    sum{e in MedleyEvents, l in Level} (total_med_time[e,l,home_team]) -
+    sum{e in DivingEvents, a in AthletesTeam[home_team]} (diving_score[a,e]*athlete_dives_event[a,e]);
 
 # OVERALL CONSTRAINTS
 

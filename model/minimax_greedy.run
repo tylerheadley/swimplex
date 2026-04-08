@@ -1,0 +1,8 @@
+reset;
+model Swimplex_time.mod;
+data test_data.dat;
+option solver "gurobi";
+
+objective TotalTime;
+solve;
+
