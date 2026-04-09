@@ -37,6 +37,7 @@ param M = 10000;
 param total_event_lim = 7;
 param enrollment_cap = 18;
 param home_team symbolic in Team;
+set Adversary := Team diff {home_team};
 
 # Solo Vars
 var athlete_swims_event_solo {Athletes, SoloEvents} binary;
@@ -81,11 +82,11 @@ maximize TotalPoints:
     sum{e in MedleyEvents, l in Level, p in Place_Relay} (relay_points[p, l] * is_rank_p_med[home_team, p, e, l]) +
     sum{e in DivingEvents, p in Place, a in AthletesTeam[home_team]} (solo_points[p]*is_ath_rank_p_dive[p, e, a]);
 
-minimize TotalTime:
-    sum{r in RelayEvents, l in Level} (total_rel_time[r,l,home_team]) + 
-    sum{e in SoloEvents, a in AthletesTeam[home_team]} (athlete_swims_event_solo[a,e]*solo_time[a,e]) +
-    sum{e in MedleyEvents, l in Level} (total_med_time[e,l,home_team]) -
-    sum{e in DivingEvents, a in AthletesTeam[home_team]} (diving_score[a,e]*athlete_dives_event[a,e]);
+maximize AdversaryResponse:
+    sum{r in RelayEvents, l in Level, p in Place_Relay, t in Adversary} (relay_points[p, l] * is_rank_p[t, p, r, l]) + 
+    sum{e in SoloEvents, p in Place,  t in Adversary, a in AthletesTeam[t]} (solo_points[p]*is_ath_rank_p[p, e, a]) +
+    sum{e in MedleyEvents, l in Level, p in Place_Relay, t in Adversary} (relay_points[p, l] * is_rank_p_med[t, p, e, l]) +
+    sum{e in DivingEvents, p in Place,  t in Adversary, a in AthletesTeam[t]} (solo_points[p]*is_ath_rank_p_dive[p, e, a]);
 
 # OVERALL CONSTRAINTS
 
@@ -126,6 +127,12 @@ subject to Overall_Event_Cap {a in Athletes}:
     sum {e in MedleyEvents, l in Level, s in Stroke} athlete_swims_event_med[a,e,l,s] +
     sum {e in DivingEvents} athlete_dives_event[a,e]
     <= total_event_lim;
+
+#SOLO AND DIVING CONSTRIANTS
+
+# Enforce Single Event Max
+subject to Solo_Event_Cap{a in Athletes}:
+sum{e in SoloEvents} athlete_swims_event_solo[a,e] + sum{e in DivingEvents} athlete_dives_event[a,e] <= solo_event_lim;
 
 # DIVING CONSTRAINTS
 
@@ -172,10 +179,6 @@ subject to One_Rank_Dive{e in DivingEvents, p in Place_Rank}:
 sum{a in Athletes} is_ath_rank_p_dive[p,e,a] <= 1;
 
 # SOLO CONSTRAINTS
-
-# Enforce Single Event Max
-subject to Solo_Event_Cap{a in Athletes}:
-sum{e in SoloEvents} athlete_swims_event_solo[a,e] <= solo_event_lim;
 
 # Set is_athlete_faster accordingly
 subject to Faster_Athlete_Const{e in SoloEvents, a1 in Athletes, a2 in Athletes : a1 <> a2}:
