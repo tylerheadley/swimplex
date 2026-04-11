@@ -85,7 +85,7 @@ _MANUAL_NAME_ALIASES: dict[str, str] = {
 
 
 def _build_name_aliases(norm_names: list[str]) -> dict[str, str]:
-    """Same alias resolution as in best_performances.py / process_results.py."""
+    """Same alias resolution as in process_results.py (steps 1-3)."""
     case_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for n in norm_names:
         case_counts[n.lower()][n] += 1
@@ -111,6 +111,40 @@ def _build_name_aliases(norm_names: list[str]) -> dict[str, str]:
                 full_forms = last_to_full.get(cn, [])
                 if len(full_forms) == 1:
                     alias[n] = full_forms[0]
+
+    # Step 3: inverted-name merging (mirrors process_results.py)
+    resolved2: dict[str, str] = {n: alias.get(n, n) for n in set(norm_names)}
+    canon_counts: dict[str, int] = defaultdict(int)
+    for n in norm_names:
+        canon_counts[resolved2[n]] += 1
+
+    lower_to_canon: dict[str, str] = {}
+    for cn in set(resolved2.values()):
+        lower_to_canon[cn.lower()] = cn
+
+    processed: set[frozenset] = set()
+    for cn in sorted(set(resolved2.values())):
+        if "," not in cn:
+            continue
+        last, first = cn.split(",", 1)
+        last, first = last.strip(), first.strip()
+        if not last or not first:
+            continue
+        inv_lower = f"{first.lower()}, {last.lower()}"
+        inv_cn = lower_to_canon.get(inv_lower)
+        if inv_cn is None or inv_cn == cn:
+            continue
+        pair: frozenset = frozenset([cn, inv_cn])
+        if pair in processed:
+            continue
+        processed.add(pair)
+        if canon_counts[cn] >= canon_counts[inv_cn]:
+            dominant, minor = cn, inv_cn
+        else:
+            dominant, minor = inv_cn, cn
+        for n in set(norm_names):
+            if resolved2.get(n) == minor:
+                alias[n] = dominant
 
     return alias
 
@@ -225,6 +259,21 @@ def _find_near_duplicates(names: list[str], threshold: float = 0.85) -> list[tup
             sim = _similarity(a, b)
             if sim >= cross_threshold:
                 pairs.append((a, b, round(sim, 3)))
+
+    # Check for inverted name pairs: "A, B" vs "B, A"
+    # These live in different last-name buckets so the bucket loop misses them.
+    name_lower_map: dict[str, str] = {n.lower(): n for n in name_list}
+    for n in name_list:
+        if "," not in n:
+            continue
+        last, first = n.split(",", 1)
+        last, first = last.strip(), first.strip()
+        if not last or not first:
+            continue
+        inv_lower = f"{first.lower()}, {last.lower()}"
+        inv_match = name_lower_map.get(inv_lower)
+        if inv_match and inv_match != n:
+            pairs.append((n, inv_match, 1.0))
 
     seen = set()
     unique = []
