@@ -811,6 +811,17 @@ def main() -> None:
             "individual_scores": indiv_scores,
             "relay_scores": relay_scores,
         }, indent=2))
+
+        json_data = {
+            "rosters": rosters,
+            "relay_assignments": relay_assignments,
+            "individual_scores": indiv_scores,
+            "relay_scores": relay_scores,
+        }
+
+        with open("rosters_output.json", "w") as f:
+            json.dump(json_data, f, indent=2)
+        print("JSON data saved to rosters_output.json")
     else:
         print_rosters(rosters)
         print_relays(relay_assignments, relay_scores)

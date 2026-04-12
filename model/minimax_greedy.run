@@ -7,9 +7,9 @@ option solver "gurobi";
 objective AdversaryResponse;
 solve;
 
-display placement_solo;
-display placement;
-display placement_med;
+#display placement_solo;
+#display placement;
+#display placement_med;
 
 # Fix away teams to their solved values
 fix {t in Adversary, a in AthletesTeam[t], e in SoloEvents} athlete_swims_event_solo[a,e];
@@ -22,9 +22,24 @@ unfix {a in AthletesTeam[home_team], e in RelayEvents, l in Level} athlete_swims
 unfix {a in AthletesTeam[home_team], e in MedleyEvents, l in Level, s in Stroke} athlete_swims_event_med[a,e,l,s];
 unfix {a in AthletesTeam[home_team], e in DivingEvents} athlete_dives_event[a,e];
 
+# Set all relay and medley enroll variables to 0
+let {t in Team, e in RelayEvents, l in Level} relay_enroll[t,e,l] := 0;
+let {t in Team, e in MedleyEvents, l in Level} med_relay_enroll[t,e,l] := 0;
+
 objective TotalPoints;
 solve;
 
 display placement_solo;
 display placement;
 display placement_med;
+display is_diver_only;
+
+# Display home team relay participants
+printf "Home Team Relay Participants:\n";
+for {e in RelayEvents, l in Level} {
+    for {a in AthletesTeam[home_team]} {
+        if athlete_swims_event_rel[a,e,l] >= 0.5 then {
+            printf "  %s - %s (%s)\n", e, a, l;
+        }
+    }
+}
