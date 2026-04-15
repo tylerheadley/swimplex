@@ -1,5 +1,5 @@
 reset;
-model Swimplex_time.mod;
+model Swimplex_time_rw.mod;
 data test_data.dat;
 
 option solver "gurobi";
