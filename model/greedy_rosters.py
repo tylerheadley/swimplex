@@ -202,6 +202,41 @@ def build_performance_entries(swimmers: Dict[str, Any]) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
+# Athlete bundle builder
+# ---------------------------------------------------------------------------
+
+def _build_athlete_bundles(all_entries: List[Dict]) -> List[Dict]:
+    """
+    Group entries by (school, name) and compute each athlete's best bundle.
+
+    Each athlete's bundle is their top N events by predicted_points, where
+    N = min(MAX_EVENTS_PER_ATHLETE, number of available events).
+
+    Returns a list of dicts, each with:
+        name, school, type, bundle (list of entries sorted by predicted_points
+        desc), bundle_value (sum of predicted_points in bundle).
+    """
+    grouped: Dict[Tuple[str, str], List[Dict]] = {}
+    for entry in all_entries:
+        key = (entry["school"], entry["name"])
+        grouped.setdefault(key, []).append(entry)
+
+    bundles = []
+    for (school, name), entries in grouped.items():
+        sorted_by_pts = sorted(entries, key=lambda e: -e["predicted_points"])
+        bundle = sorted_by_pts[:MAX_EVENTS_PER_ATHLETE]
+        bundles.append({
+            "name": name,
+            "school": school,
+            "type": entries[0]["type"],
+            "bundle": bundle,
+            "bundle_value": sum(e["predicted_points"] for e in bundle),
+        })
+
+    return bundles
+
+
+# ---------------------------------------------------------------------------
 # Greedy roster builder
 # ---------------------------------------------------------------------------
 
@@ -210,7 +245,13 @@ def greedy_rosters(
     target_teams: List[str] | None = None,
 ) -> Dict[str, Dict]:
     """
-    Greedy individual-event roster assignment.
+    Greedy athlete-level roster assignment.
+
+    For each athlete, pre-computes their best 3-event bundle (sum of
+    predicted points across their top events). Athletes are sorted by
+    bundle value and assigned in that order, so an athlete who scores
+    moderately in 3 events is preferred over one who scores slightly
+    higher in only 1 event.
 
     Rules
     -----
@@ -219,9 +260,10 @@ def greedy_rosters(
         swimmer = 1 unit, diver = 1/3 unit.
     - Athletes are added to the team roster at most once; additional event
       assignments for an already-rostered athlete cost no extra budget.
-    - When a new athlete would be added as a swimmer (cost 1), the algorithm
-      checks whether the top-3 available divers for that team would collectively
-      yield more points. If so, those divers are taken instead.
+    - When a new swimmer would be added (cost 1), the algorithm checks
+      whether unrostered divers for that team (costing up to 1 unit total)
+      would collectively yield more bundle points. If so, those divers are
+      taken instead.
 
     Returns
     -------
@@ -240,11 +282,20 @@ def greedy_rosters(
             }
         }
     """
-    # Sort all entries by predicted points descending (ties broken by rank ascending)
-    sorted_entries = sorted(
-        all_entries,
-        key=lambda x: (-x["predicted_points"], x["rank"]),
+    athlete_bundles = _build_athlete_bundles(all_entries)
+
+    # Sort athletes by bundle value descending, breaking ties by best single
+    # event (favoring a dominant event), then by name for determinism.
+    athlete_bundles.sort(
+        key=lambda a: (-a["bundle_value"],
+                       -max(e["predicted_points"] for e in a["bundle"]),
+                       a["name"]),
     )
+
+    # Index bundles by (school, name) for the diver look-ahead
+    bundle_by_key: Dict[Tuple[str, str], Dict] = {
+        (a["school"], a["name"]): a for a in athlete_bundles
+    }
 
     # Per-team state
     teams: Dict[str, Dict] = {}
@@ -282,75 +333,98 @@ def greedy_rosters(
         else:
             team["athletes"][name]["assignments"].append(assignment)
 
-    # Track which entries are still "available" per team so we can do the
-    # diver-vs-swimmer look-ahead. We use a simple consumed set keyed by
-    # (school, name, event).
-    consumed: set = set()
-
-    def _is_available(entry: Dict) -> bool:
-        school = entry["school"]
-        name = entry["name"]
-        event = entry["event"]
-        if (school, name, event) in consumed:
-            return False
+    def _assign_bundle(school: str, athlete: Dict) -> None:
+        """Assign all events in an athlete's bundle."""
         team = _team(school)
+        name = athlete["name"]
+        already_assigned = set()
         if name in team["athletes"]:
-            # Already rostered: available only if under event cap
-            return len(team["athletes"][name]["assignments"]) < MAX_EVENTS_PER_ATHLETE
-        # New athlete: available only if budget allows
-        return _can_add_new(school, entry["type"])
+            already_assigned = {a["event"] for a in team["athletes"][name]["assignments"]}
+        remaining_slots = MAX_EVENTS_PER_ATHLETE - len(already_assigned)
+        for entry in athlete["bundle"]:
+            if remaining_slots <= 0:
+                break
+            if entry["event"] not in already_assigned:
+                _assign(school, entry)
+                already_assigned.add(entry["event"])
+                remaining_slots -= 1
 
-    def _top_available_divers(school: str, n: int) -> List[Dict]:
-        """Return up to n highest-point available diver entries for this team."""
-        result = []
-        for e in sorted_entries:
-            if e["school"] != school or e["type"] != "diver":
+    def _top_unrostered_diver_bundles(school: str) -> Tuple[List[Dict], float]:
+        """
+        Find the best set of unrostered divers for this school that fit
+        within 1.0 budget unit (the cost of one swimmer).
+
+        For partially-rostered divers, only counts the value of their
+        unassigned bundle events.
+
+        Returns (list_of_athlete_bundle_dicts, total_remaining_value).
+        """
+        team = _team(school)
+        # Collect diver bundles for this school, sorted by remaining value
+        diver_candidates = []
+        for ab in athlete_bundles:
+            if ab["school"] != school or ab["type"] != "diver":
                 continue
-            if _is_available(e) and (school, e["name"], e["event"]) not in consumed:
-                result.append(e)
-                if len(result) == n:
-                    break
-        return result
+            name = ab["name"]
+            if name in team["athletes"]:
+                # Already rostered: marginal cost = 0, value = unassigned events only
+                assigned_events = {a["event"] for a in team["athletes"][name]["assignments"]}
+                remaining_entries = [e for e in ab["bundle"] if e["event"] not in assigned_events]
+                remaining_value = sum(e["predicted_points"] for e in remaining_entries)
+                if remaining_value <= 0:
+                    continue
+                diver_candidates.append((ab, 0.0, remaining_value))
+            else:
+                # Not yet rostered
+                if not _can_add_new(school, "diver"):
+                    continue
+                diver_candidates.append((ab, DIVER_COST, ab["bundle_value"]))
 
-    for entry in sorted_entries:
-        school = entry["school"]
+        # Sort by remaining value descending
+        diver_candidates.sort(key=lambda x: -x[2])
+
+        # Greedily pack divers within 1.0 budget unit
+        selected = []
+        cost_used = 0.0
+        total_value = 0.0
+        for ab, cost, value in diver_candidates:
+            if cost_used + cost > 1.0 + 1e-9:
+                continue
+            selected.append(ab)
+            cost_used += cost
+            total_value += value
+
+        return selected, total_value
+
+    # Main loop: iterate athletes by bundle value
+    for athlete in athlete_bundles:
+        school = athlete["school"]
         if target_teams and school not in target_teams:
             continue
-        if (school, entry["name"], entry["event"]) in consumed:
-            continue
 
-        name = entry["name"]
-        athlete_type = entry["type"]
+        name = athlete["name"]
+        athlete_type = athlete["type"]
         team = _team(school)
 
-        # Case 1: athlete already rostered – assign if event slots remain
+        # Already rostered (e.g. via earlier diver swap): assign remaining bundle events
         if name in team["athletes"]:
-            if len(team["athletes"][name]["assignments"]) < MAX_EVENTS_PER_ATHLETE:
-                _assign(school, entry)
-                consumed.add((school, name, entry["event"]))
+            _assign_bundle(school, athlete)
             continue
 
-        # Case 2: new athlete – check budget
+        # New athlete: check budget
         if not _can_add_new(school, athlete_type):
             continue
 
-        # Case 3: new swimmer – compare against top-3 divers
+        # New swimmer: compare bundle value against top divers' combined bundle value
         if athlete_type == "swimmer":
-            top_divers = _top_available_divers(school, 3)
-            # Only substitute if we can fit at least as many diver units in
-            # the same 1 budget unit AND their combined points beat this swimmer.
-            diver_pts_sum = sum(d["predicted_points"] for d in top_divers)
-            if len(top_divers) >= 3 and diver_pts_sum > entry["predicted_points"]:
-                # Take the divers instead
-                for d in top_divers:
-                    if _can_add_new(school, "diver"):
-                        _assign(school, d)
-                        consumed.add((school, d["name"], d["event"]))
-                consumed.add((school, name, entry["event"]))  # skip this swimmer entry
+            diver_picks, diver_total_value = _top_unrostered_diver_bundles(school)
+            if diver_total_value > athlete["bundle_value"]:
+                for diver_ab in diver_picks:
+                    _assign_bundle(school, diver_ab)
                 continue
 
-        _assign(school, entry)
-        consumed.add((school, name, entry["event"]))
+        # Assign this athlete's full bundle
+        _assign_bundle(school, athlete)
 
     return teams
 
@@ -786,7 +860,13 @@ def main() -> None:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Output raw JSON instead of human-readable text.",
+        help="Print raw JSON to stdout instead of human-readable text.",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        metavar="FILE",
+        help="Write full results to a JSON file (e.g. results.json). "
+             "Human-readable output is still printed unless --json is also given.",
     )
     args = parser.parse_args()
 
@@ -804,24 +884,30 @@ def main() -> None:
     relay_assignments = greedy_relay_assignment(rosters, swimmers)
     relay_scores = evaluate_relay_scores(relay_assignments)
 
-    if args.json:
-        print(json.dumps({
-            "rosters": rosters,
-            "relay_assignments": relay_assignments,
-            "individual_scores": indiv_scores,
-            "relay_scores": relay_scores,
-        }, indent=2))
+    results = {
+        "input": str(path),
+        "rosters": rosters,
+        "relay_assignments": relay_assignments,
+        "individual_scores": indiv_scores,
+        "relay_scores": relay_scores,
+        "total_scores": {
+            t: indiv_scores.get(t, 0) + relay_scores.get(t, 0)
+            for t in set(indiv_scores) | set(relay_scores)
+        },
+    }
 
-        json_data = {
-            "rosters": rosters,
-            "relay_assignments": relay_assignments,
-            "individual_scores": indiv_scores,
-            "relay_scores": relay_scores,
-        }
+    if args.output:
+        out_path = Path(args.output)
+        with out_path.open("w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+        print(f"Results written to: {out_path}", file=sys.stderr)
+
+    if args.json:
+        print(json.dumps(results, indent=2))
 
         with open("rosters_output.json", "w") as f:
-            json.dump(json_data, f, indent=2)
-        print("JSON data saved to rosters_output.json")
+            json.dump(results, f, indent=2)
+        print("JSON data saved to rosters_output.json", file=sys.stderr)
     else:
         print_rosters(rosters)
         print_relays(relay_assignments, relay_scores)
