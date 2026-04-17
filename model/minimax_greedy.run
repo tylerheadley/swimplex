@@ -7,10 +7,6 @@ option solver "gurobi";
 objective AdversaryResponse;
 solve;
 
-#display placement_solo;
-#display placement;
-#display placement_med;
-
 # Fix away teams to their solved values
 fix {t in Adversary, a in AthletesTeam[t], e in SoloEvents} athlete_swims_event_solo[a,e];
 fix {t in Adversary, a in AthletesTeam[t], e in RelayEvents, l in Level} athlete_swims_event_rel[a,e,l];
@@ -21,10 +17,6 @@ unfix {a in AthletesTeam[home_team], e in SoloEvents} athlete_swims_event_solo[a
 unfix {a in AthletesTeam[home_team], e in RelayEvents, l in Level} athlete_swims_event_rel[a,e,l];
 unfix {a in AthletesTeam[home_team], e in MedleyEvents, l in Level, s in Stroke} athlete_swims_event_med[a,e,l,s];
 unfix {a in AthletesTeam[home_team], e in DivingEvents} athlete_dives_event[a,e];
-
-# Set all relay and medley enroll variables to 0
-let {t in Team, e in RelayEvents, l in Level} relay_enroll[t,e,l] := 0;
-let {t in Team, e in MedleyEvents, l in Level} med_relay_enroll[t,e,l] := 0;
 
 objective TotalPoints;
 solve;
