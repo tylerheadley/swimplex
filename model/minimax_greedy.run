@@ -1,6 +1,6 @@
 reset;
-model Swimplex_time_rw.mod;
-data test_data.dat;
+model Swimplex_time.mod;
+data roster_times.dat;
 
 option solver "gurobi";
 

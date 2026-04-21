@@ -13,6 +13,7 @@ Defaults:
 import argparse
 import os
 import sys
+import pickle
 
 from amplpy import AMPL, add_to_path
 add_to_path("/Applications/AMPL")
@@ -27,6 +28,7 @@ def parse_args():
     p.add_argument("--dat",       default=DEFAULT_DAT, help="Path to .dat file")
     p.add_argument("--home-team", default=None,        help="Override home_team param")
     p.add_argument("--solver",    default="gurobi",    help="AMPL solver name")
+    p.add_argument("--output",    default="model_test",    help="Pickled output name")
     return p.parse_args()
 
 
@@ -56,6 +58,11 @@ def main():
 
     ampl.solve()
     solve_result = ampl.get_value("solve_result")
+
+    with open(f'args.output.pkl', 'wb') as f:
+        pickle.dump(ampl, f)
+        print(f"\nModel saved as Pickle under: {args.output}.pkl")
+
     print(f"\nSolve result: {solve_result}")
 
     if solve_result == "infeasible":
