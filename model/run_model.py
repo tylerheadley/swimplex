@@ -48,6 +48,7 @@ def main():
     ampl.read(MOD_FILE)
     ampl.read_data(args.dat)
     ampl.set_option("solver", args.solver)
+    ampl.eval(f'write b{args.output};')
 
     if args.home_team:
         ampl.param["home_team"] = args.home_team
@@ -58,10 +59,6 @@ def main():
 
     ampl.solve()
     solve_result = ampl.get_value("solve_result")
-
-    with open(f'args.output.pkl', 'wb') as f:
-        pickle.dump(ampl, f)
-        print(f"\nModel saved as Pickle under: {args.output}.pkl")
 
     print(f"\nSolve result: {solve_result}")
 
