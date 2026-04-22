@@ -32,7 +32,7 @@ param diving_score {Athletes, DivingEvents} >= 0;
 param diving_score_const = 1/3;
 
 # Overall params
-param M = 10000;
+param M = 50000;
 param total_event_lim = 7;
 param enrollment_cap = 18;
 param home_team symbolic in Team;
