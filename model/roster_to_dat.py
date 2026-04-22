@@ -6,16 +6,54 @@ def parse_args():
     p.add_argument("--freeze",       choices=['adv', 'home'], default="home", help="Chooses which set of teams to freeze")
     return p.parse_args()
 
+def get_event_type(event_str):
+    if "Relay" not in event_str:
+        if "Diving" not in event_str:
+            return "solo"
+        else:
+            return "diving"
+    else:
+        return "relay"
+    
+def is_med_compatible(event_str):
+    return int(event_str.split()[0])*4 in [200, 400]
+
+def get_med_info(event_str):
+    stroke_map = {
+       "Freestyle": "Free",
+       "Backstroke": "Back",
+       "Breaststroke": "Breast",
+       "Butterfly": "Fly" 
+    }
+    return "MED" + str(int(event_str.split()[0])*4), stroke_map[event_str.split()[2]]  
+
+def convert_time_to_seconds(time_val):
+        """Convert time with format m:ss.xx to total seconds"""
+        if isinstance(time_val, str) and ':' in time_val:
+            parts = time_val.split(':')
+            if len(parts) == 2:
+                try:
+                    minutes = int(parts[0])
+                    seconds = float(parts[1])
+                    return minutes * 60 + seconds
+                except (ValueError, IndexError):
+                    return time_val
+        return time_val
+
 def main():
     args = parse_args()
     home_team = "Claremont-Mudd-Scripps-CA"
 
     # Read JSON
     with open("rosters_output.json", 'r') as f:
-        data = json.load(f)
+        roster_data = json.load(f)
+    with open("data/best_performances_men.json") as f:
+        team_data = json.load(f)
 
-    rosters = data.get("rosters", {})
-    relay_assign = data.get("relay_assignments", {})
+    ath_data = team_data["swimmers"]
+
+    rosters = roster_data.get("rosters", {})
+    relay_assign = roster_data.get("relay_assignments", {})
 
     event_map = {
     "500 Yard Freestyle": "500Free",
@@ -31,10 +69,12 @@ def main():
     "100 Yard Freestyle": "100Free",
     "200 Yard Breaststroke": "200Breast",
     "200 Yard Butterfly": "200Fly",
+    "1 mtr Diving": "1MDive",
+    "3 mtr Diving": "3MDive",
 }   
+    STOP_WORDS = ["None", "DFS", "DQ"]
     # Generate SET data:
-    events = set()
-    athletes = set()
+    athletes = set(ath_data.keys())
     teams = set()
     relay_events = set()
     solo_events = set()
@@ -43,18 +83,6 @@ def main():
     athlete_teams = {}
     stroke_list = ["Free", "Back", "Breast", "Fly"]
     # Helper function to convert time format m:ss.xx to seconds
-    def convert_time_to_seconds(time_val):
-        """Convert time with format m:ss.xx to total seconds"""
-        if isinstance(time_val, str) and ':' in time_val:
-            parts = time_val.split(':')
-            if len(parts) == 2:
-                try:
-                    minutes = int(parts[0])
-                    seconds = float(parts[1])
-                    return minutes * 60 + seconds
-                except (ValueError, IndexError):
-                    return time_val
-        return time_val
     
     # Generate let statements
     let_statements = []
@@ -62,24 +90,46 @@ def main():
     
     # Dictionary to store solo_time with (athlete, event) as key
     solo_time_dict = {}
+    leg_time_dict = {}
+    leg_time_med_dict = {}
+    diving_score_dict = {}
+
+    for athlete, ath_info in ath_data.items():
+        school, _, ath_type, events = ath_info.values()
+        teams.add(school)
+        if school not in athlete_teams:
+            athlete_teams[school] = set()
+        athlete_teams[school].add(athlete)
+        for event_type, event_info in events.items():
+            if " ".join(event_type.split()[0:3]) in event_map:
+
+                if get_event_type(event_type) == "solo":
+                    event_abbrev = event_map[event_type]
+                    solo_events.add(event_abbrev)
+                    solo_time_dict[(athlete, event_abbrev)] = convert_time_to_seconds(event_info["best"]) if event_info["best"] not in STOP_WORDS else 9999
+
+                    if is_med_compatible(event_type):
+                        event_abbrev, stroke = get_med_info(event_type)
+                        med_events.add(event_abbrev)
+                        leg_time_med_dict[(athlete, event_abbrev, stroke)] = convert_time_to_seconds(event_info["best"]) if event_info["best"] not in STOP_WORDS else 9999
+                elif get_event_type(event_type) == "diving":
+                    event_abbrev = event_map[event_type]
+                    diving_events.add(event_abbrev)
+                    diving_score_dict[(athlete, event_abbrev)] = event_info["best"] if event_info["best"] != "None" else 0
+                else:
+                    event_abbrev = "FR" + str(int(event_type.split()[0])*4)
+                    relay_events.add(event_abbrev)
+                    leg_time_dict[(athlete, event_abbrev)] = convert_time_to_seconds(event_info["best"]) if event_info["best"] not in STOP_WORDS else 9999
 
     for team, team_body in rosters.items():
-        teams.add(team)
-        athlete_teams[team] = set()
         for _, athlete_info in team_body.items():
             if not isinstance(athlete_info,float):
                 for athlete, events in athlete_info.items():
-                    athletes.add(athlete)
-                    athlete_teams[team].add(athlete)
+                    if len(athlete.split()) > 2:
+                        athlete = athlete.split()[0] + " " + athlete.split()[1]
+
                     assignments = events["assignments"]
                     for event in assignments:
-                        event_abbrev = event_map[event["event"]]
-                        solo_events.add(event_abbrev)
-                        solo_time = event["best"]
-                        # Convert time format m:ss.xx to seconds
-                        solo_time = convert_time_to_seconds(solo_time)
-                        # Store with (athlete, event) tuple as key
-                        solo_time_dict[(athlete, event_abbrev)] = solo_time
                         
                         # Generate let and fix statements for solo event enrollment
                         if args.freeze == "home":
@@ -94,30 +144,21 @@ def main():
                                 fix_stmt = f"fix athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'];"
                                 let_statements.append(let_stmt)
                                 fix_statements.append(fix_stmt)
-    # Dictionary to store leg times with (athlete, event) as key
-    leg_time_dict = {}
-    
-    # Dictionary to store medley leg times by (athlete, event, stroke)
-    leg_time_med_dict = {}
+
     
     for team, team_body in relay_assign.items():
         for event, event_body in team_body.items():
-            if "MED" in event:
-                med_events.add(event)
-            else:
-                relay_events.add(event)
-
             # Process both A and B heats
             for heat in ["A", "B"]:
                 if heat in event_body and event_body[heat]:
                     for leg_body in event_body[heat]['legs']:
                         athlete_name = leg_body["name"]
+                        if len(athlete_name.split()) > 2:
+                            athlete_name = athlete_name.split()[0] + " " + athlete_name.split()[1]
                         leg_time_val = leg_body["time_used"]
                         # Convert time format m:ss.xx to seconds
                         leg_time_val = convert_time_to_seconds(leg_time_val)
-                        
-                        # Store with (athlete, event) tuple as key
-                        leg_time_dict[(athlete_name, event)] = leg_time_val
+                    
                         
                         # Generate let and fix statements for relay enrollment
                         if "MED" not in event:  # Only for regular relays, not medleys
@@ -235,6 +276,22 @@ def main():
         f.write("\n")
         
         # Write solo_time parameter
+        f.write("# Diving Event Scores (athlete, event)\n")
+        f.write("param diving_score :=\n")
+        
+        # Write each athlete's times in tuple format (9999 for missing)
+        athlete_list = sorted(athletes)
+        for athlete in athlete_list:
+            for event in sorted(diving_events):
+                if (athlete, event) in diving_score_dict:
+                    score_val = diving_score_dict[(athlete, event)]
+                else:
+                    score_val = 0  # Sentinel value for athletes who didn't compete
+                f.write(f'  "{athlete}" {event} {score_val}\n')
+        
+        f.write(";\n\n")
+
+        # Write solo_time parameter
         f.write("# Solo Event Times (athlete, event)\n")
         f.write("param solo_time :=\n")
         
@@ -303,13 +360,7 @@ def main():
         # Write home_team parameter (default to first team)
         home_team = sorted(teams)[0] if teams else "DefaultTeam"
         f.write(f'param home_team := "{home_team}";\n\n')
-        
-        # Write diving_score parameter if divers exist
-        if diving_events:
-            f.write("# Diving Scores (athlete, event)\n")
-            f.write("param diving_score :=\n")
-            # Placeholder - would need diving data from JSON
-            f.write(";\n\n")
+    
         
         # Write let and fix statements for relay enrollments
         if let_statements:
