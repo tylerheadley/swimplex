@@ -19,8 +19,9 @@ from pathlib import Path
 from collections import defaultdict
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = REPO_ROOT / "data/2025-26-pre-sciac/model_results_men.json"
-GT_PATH    = REPO_ROOT / "data/2025-26-pre-sciac/ground_truth/results.json"
+MODEL_PATH  = REPO_ROOT / "data/2025-26-pre-sciac/model_results_men.json"
+GREEDY_PATH = REPO_ROOT / "data/2025-26-pre-sciac/greedy_rosters_men.json"
+GT_PATH     = REPO_ROOT / "data/2025-26-pre-sciac/ground_truth/results.json"
 
 # Map model team names → canonical names used in ground truth
 # (model uses pipeline canonical names; GT uses same canonicalization)
@@ -64,6 +65,28 @@ def load_data():
         model = json.load(f)
     with open(GT_PATH) as f:
         gt = json.load(f)
+
+    # If optimized scores/rosters are empty (optimizer infeasible), fall back to greedy
+    if not model.get("optimized_scores") and GREEDY_PATH.exists():
+        with open(GREEDY_PATH) as f:
+            greedy = json.load(f)
+        model["optimized_scores"] = model.get("greedy_scores", {})
+        # Build optimized_rosters from greedy rosters format
+        opt_rosters = {}
+        for team, team_body in greedy.get("rosters", {}).items():
+            athletes = {}
+            for group in team_body.values():
+                if isinstance(group, dict):
+                    for name, info in group.items():
+                        events = [a["event"] for a in info.get("assignments", [])]
+                        athletes[name] = {
+                            "type": info.get("type", "swimmer"),
+                            "events": events,
+                        }
+            opt_rosters[team] = {"athletes": athletes}
+        model["optimized_rosters"] = opt_rosters
+        model["_using_greedy_fallback"] = True
+
     return model, gt
 
 
@@ -136,8 +159,9 @@ def compare_scores(model, gt):
     optimized = model["optimized_scores"]
     greedy    = model["greedy_scores"]
 
+    label = "Greedy (optimizer fallback)" if model.get("_using_greedy_fallback") else "Model Optimized"
     print("=" * 72)
-    print("SCORE COMPARISON  (Greedy → Model Optimized vs Actual)")
+    print(f"SCORE COMPARISON  (Greedy → {label} vs Actual)")
     print("=" * 72)
     print(f"{'Team':<30} {'Greedy':>8} {'Model':>10} {'Actual':>8} {'Error':>8} {'Err%':>6}")
     print("-" * 72)

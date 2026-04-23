@@ -263,7 +263,8 @@ def greedy_rosters(
     - When a new swimmer would be added (cost 1), the algorithm checks
       whether unrostered divers for that team (costing up to 1 unit total)
       would collectively yield more bundle points. If so, those divers are
-      taken instead.
+      assigned first, and then the swimmer is still assigned immediately after
+      (if budget remains).
 
     Returns
     -------
@@ -415,13 +416,16 @@ def greedy_rosters(
         if not _can_add_new(school, athlete_type):
             continue
 
-        # New swimmer: compare bundle value against top divers' combined bundle value
+        # New swimmer: if divers offer more value per budget unit, pick them first.
+        # Then still assign this swimmer (they remain next in line after the diver picks).
         if athlete_type == "swimmer":
             diver_picks, diver_total_value = _top_unrostered_diver_bundles(school)
             if diver_total_value > athlete["bundle_value"]:
                 for diver_ab in diver_picks:
                     _assign_bundle(school, diver_ab)
-                continue
+                # Re-check budget: divers may have consumed the last available unit
+                if not _can_add_new(school, athlete_type):
+                    continue
 
         # Assign this athlete's full bundle
         _assign_bundle(school, athlete)
