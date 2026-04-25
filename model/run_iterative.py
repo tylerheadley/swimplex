@@ -45,7 +45,7 @@ SOLO_REV: dict[str, str] = {v: k for k, v in SOLO_EVENTS.items()}
 DIVE_REV: dict[str, str] = {v: k for k, v in DIVE_EVENTS.items()}
 
 DATA_DIR = REPO_ROOT / "data"
-DEFAULT_MOD = REPO_ROOT / "model" / "Swimplex_time_rw.mod"
+DEFAULT_MOD = REPO_ROOT / "model" / "Swimplex_time.mod"
 
 
 def q(s: str) -> str:

@@ -1,8 +1,34 @@
 reset;
 model Swimplex_time.mod;
-data roster_times.dat;
+data roster_times_test.dat;
 
 option solver "gurobi";
+
+# option gurobi_options 'outlev=1';
+# option gurobi_options 'mipgap=0.025';
+
+
+# objective TotalPoints;
+# solve;
+
+# fix {a in AthletesTeam[home_team], e in SoloEvents} athlete_swims_event_solo[a,e];
+# fix {a in AthletesTeam[home_team], e in RelayEvents, l in Level} athlete_swims_event_rel[a,e,l];
+# fix {a in AthletesTeam[home_team], e in MedleyEvents, l in Level, s in Stroke} athlete_swims_event_med[a,e,l,s];
+# fix {a in AthletesTeam[home_team], e in DivingEvents} athlete_dives_event[a,e];
+
+# display placement_solo;
+# display placement;
+# display placement_med;
+# display is_diver_only;
+
+option gurobi_options 'outlev=1';
+option gurobi_options 'mipgap=0.025';
+
+# Set the integrality tolerance for the presolver
+option presolve_inteps 1.32e-06;
+
+# Set the comparison epsilon for the presolver
+option presolve_eps 2.13e-15;
 
 objective AdversaryResponse;
 solve;
@@ -17,6 +43,9 @@ unfix {a in AthletesTeam[home_team], e in SoloEvents} athlete_swims_event_solo[a
 unfix {a in AthletesTeam[home_team], e in RelayEvents, l in Level} athlete_swims_event_rel[a,e,l];
 unfix {a in AthletesTeam[home_team], e in MedleyEvents, l in Level, s in Stroke} athlete_swims_event_med[a,e,l,s];
 unfix {a in AthletesTeam[home_team], e in DivingEvents} athlete_dives_event[a,e];
+
+option gurobi_options 'outlev=1';
+option gurobi_options 'mipgap=0.025';
 
 objective TotalPoints;
 solve;

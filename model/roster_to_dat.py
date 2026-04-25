@@ -42,10 +42,10 @@ def convert_time_to_seconds(time_val):
 
 def main():
     args = parse_args()
-    home_team = "Claremont-Mudd-Scripps-CA"
+    home_team = "Claremont-Mudd-Scripps"
 
     # Read JSON
-    with open("rosters_output.json", 'r') as f:
+    with open("greedy_results_men.json", 'r') as f:
         roster_data = json.load(f)
     with open("data/best_performances_men.json") as f:
         team_data = json.load(f)
@@ -69,10 +69,12 @@ def main():
     "100 Yard Freestyle": "100Free",
     "200 Yard Breaststroke": "200Breast",
     "200 Yard Butterfly": "200Fly",
+    "200 Yard IM": "200IM",
+    "400 Yard IM": "400IM",
     "1 mtr Diving": "1MDive",
     "3 mtr Diving": "3MDive",
 }   
-    STOP_WORDS = ["None", "DFS", "DQ"]
+    STOP_WORDS = ["None", "DFS", "DQ", "NS"]
     # Generate SET data:
     athletes = set(ath_data.keys())
     teams = set()
@@ -126,24 +128,51 @@ def main():
             if not isinstance(athlete_info,float):
                 for athlete, events in athlete_info.items():
                     if len(athlete.split()) > 2:
-                        athlete = athlete.split()[0] + " " + athlete.split()[1]
-
-                    assignments = events["assignments"]
-                    for event in assignments:
-                        
-                        # Generate let and fix statements for solo event enrollment
-                        if args.freeze == "home":
-                            if team == home_team:
-                                let_stmt = f"let athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'] := 1;"
-                                fix_stmt = f"fix athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'];"
-                                let_statements.append(let_stmt)
-                                fix_statements.append(fix_stmt)
-                        else:
-                            if team != home_team:
-                                let_stmt = f"let athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'] := 1;"
-                                fix_stmt = f"fix athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'];"
-                                let_statements.append(let_stmt)
-                                fix_statements.append(fix_stmt)
+                        athlete = athlete.split(",")[0] + ", " + athlete.split(",")[1].split()[0]
+                    if athlete in athletes:
+                        assignments = events["assignments"]
+                        for event in assignments:
+                            event_abbrev = event_map[event["event"]]
+                            
+                            # Generate let and fix statements for solo event enrollment
+                            if get_event_type(event["event"]) == "solo":
+                                if args.freeze == "home":
+                                    if team == home_team:
+                                        let_stmt = f"let athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        fix_stmt = f"fix athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        let_statements.append(let_stmt)
+                                else:
+                                    if team != home_team:
+                                        let_stmt = f"let athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        fix_stmt = f"fix athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_swims_event_solo[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        let_statements.append(let_stmt)
+                            elif get_event_type(event["event"]) == "diving":
+                                if args.freeze == "home":
+                                    if team == home_team:
+                                        let_stmt = f"let athlete_dives_event[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        fix_stmt = f"fix athlete_dives_event[\"{athlete}\", '{event_abbrev}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_dives_event[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        let_statements.append(let_stmt)
+                                else:
+                                    if team != home_team:
+                                        let_stmt = f"let athlete_dives_event[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        fix_stmt = f"fix athlete_dives_event[\"{athlete}\", '{event_abbrev}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_dives_event[\"{athlete}\", '{event_abbrev}'] := 1;"
+                                        let_statements.append(let_stmt)
 
     
     for team, team_body in relay_assign.items():
@@ -159,43 +188,54 @@ def main():
                         # Convert time format m:ss.xx to seconds
                         leg_time_val = convert_time_to_seconds(leg_time_val)
                     
-                        
-                        # Generate let and fix statements for relay enrollment
-                        if "MED" not in event:  # Only for regular relays, not medleys
-
-                            if args.freeze == "home":    
-                                if team == home_team:
-                                    let_stmt = f"let athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'] := 0;"
-                                    fix_stmt = f"fix athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'];"
-                                    let_statements.append(let_stmt)
-                                    fix_statements.append(fix_stmt)
-                            else:
-                                if team != home_team:
-                                    let_stmt = f"let athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'] := 0;"
-                                    fix_stmt = f"fix athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'];"
-                                    let_statements.append(let_stmt)
-                                    fix_statements.append(fix_stmt)
-                        
-                        # For medley relays, also map stroke
-                        if "MED" in event:
-                            # Map leg number to stroke (1=Back, 2=Breast, 3=Fly, 4=Free)
-                            stroke_map = {1: "Back", 2: "Breast", 3: "Fly", 4: "Free"}
-                            stroke = stroke_map.get(leg_body["leg"], "Free")
-                            leg_time_med_dict[(athlete_name, event, stroke)] = leg_time_val
+                        if athlete_name in athletes:
+                            # Generate let and fix statements for relay enrollment
+                            if "MED" not in event:  # Only for regular relays, not medleys
+                                if args.freeze == "home":    
+                                    if team == home_team:
+                                        let_stmt = f"let athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'] := 1;"
+                                        fix_stmt = f"fix athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'] := 1;"
+                                        let_statements.append(let_stmt)
+                                else:
+                                    if team != home_team:
+                                        let_stmt = f"let athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'] := 1;"
+                                        fix_stmt = f"fix athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_swims_event_rel[\"{athlete_name}\", '{event}', '{heat}'] := 1;"
+                                        let_statements.append(let_stmt)
                             
-                            # Generate let and fix statements for medley event enrollment
-                            if args.freeze == "home":
-                                if team == home_team:
-                                    let_stmt = f"let athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'] := 0;"
-                                    fix_stmt = f"fix athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'];"
-                                    let_statements.append(let_stmt)
-                                    fix_statements.append(fix_stmt)
-                            else:
-                                if team != home_team:
-                                    let_stmt = f"let athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'] := 0;"
-                                    fix_stmt = f"fix athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'];"
-                                    let_statements.append(let_stmt)
-                                    fix_statements.append(fix_stmt)
+                            # For medley relays, also map stroke
+                            if "MED" in event:
+                                # Map leg number to stroke (1=Back, 2=Breast, 3=Fly, 4=Free)
+                                stroke_map = {1: "Back", 2: "Breast", 3: "Fly", 4: "Free"}
+                                stroke = stroke_map.get(leg_body["leg"], "Free")
+                                leg_time_med_dict[(athlete_name, event, stroke)] = leg_time_val
+                                
+                                # Generate let and fix statements for medley event enrollment
+                                if args.freeze == "home":
+                                    if team == home_team:
+                                        let_stmt = f"let athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'] := 1;"
+                                        fix_stmt = f"fix athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'] := 1;"
+                                        let_statements.append(let_stmt)
+                                else:
+                                    if team != home_team:
+                                        let_stmt = f"let athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'] := 1;"
+                                        fix_stmt = f"fix athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'];"
+                                        let_statements.append(let_stmt)
+                                        fix_statements.append(fix_stmt)
+                                    else:
+                                        let_stmt = f"let athlete_swims_event_med[\"{athlete_name}\", '{event}', '{heat}', '{stroke}'] := 1;"
+                                        let_statements.append(let_stmt)
     
     # Union all events
     all_events = solo_events | relay_events | med_events | diving_events
@@ -206,10 +246,10 @@ def main():
             1: 20, 2: 17, 3: 16, 4: 15, 5: 14, 6: 13, 7: 12, 8: 11, 9: 10, 10: 9,
             11: 8, 12: 7, 13: 6, 14: 5, 15: 4, 16: 3
         }
-        return place_scores.get(place, max(1, 20 - place))
+        return place_scores.get(place, 1/place)
     
     # Generate relay points (A heat: places 1-..., B heat: places 10-...)
-    max_relay_place = len(teams) + 1
+    max_relay_place = len(list(teams)) + 1
     relay_points_dict = {}
     for place in range(1, max_relay_place + 1):
         for heat in ["A", "B"]:
@@ -221,13 +261,18 @@ def main():
                     relay_points_dict[(place, heat)] = 0
             else:  # B heat
                 # B heat gets places 10-... (overall 10-...)
-                if 10 <= place <= max_relay_place:
-                    relay_points_dict[(place, heat)] = sciac_solo_points(place) * 2
+                if place <= 9:
+                    relay_points_dict[(place, heat)] = sciac_solo_points(place)
                 else:
                     relay_points_dict[(place, heat)] = 0
 
+
+    for team, athset in athlete_teams.items():
+        print(team)
+        print(len(athset))
+
     # Write to .dat file
-    with open("roster_times.dat", 'w') as f:
+    with open("roster_times_test.dat", 'w') as f:
         # Write all sets
         f.write("# Sets\n")
         f.write("set Events := ")
@@ -358,7 +403,6 @@ def main():
         f.write(";\n\n")
         
         # Write home_team parameter (default to first team)
-        home_team = sorted(teams)[0] if teams else "DefaultTeam"
         f.write(f'param home_team := "{home_team}";\n\n')
     
         

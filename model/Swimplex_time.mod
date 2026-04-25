@@ -21,7 +21,7 @@ param solo_points {Place};
 
 # Relay Params
 param leg_time {Athletes, RelayEvents} >= 0;
-param relay_enroll_ct = 2;
+param relay_enroll_ct = 4;
 param relay_points {Place_Relay, Level};
 param relay_event_lim = 5;
 
@@ -33,7 +33,7 @@ param diving_score {Athletes, DivingEvents} >= 0;
 param diving_score_const = 1/3;
 
 # Overall params
-param M = 10000;
+param M = 1000000;
 param total_event_lim = 7;
 param enrollment_cap = 18;
 param home_team symbolic in Team;

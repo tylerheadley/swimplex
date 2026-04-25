@@ -148,6 +148,8 @@ def main():
     ampl.read(MOD_FILE)
     ampl.read_data(args.dat)
     ampl.set_option("solver", args.solver)
+    ampl.set_option("gurobi_options", "iisfind=1 outlev=1")
+    ampl.set_option("gurobi_options", "mipgap=0.01")
 
     if args.home_team:
         ampl.param["home_team"] = args.home_team
@@ -155,6 +157,7 @@ def main():
 
     home_team = ampl.param["home_team"].value()
     print(f"home_team : {home_team}\n")
+    ampl.eval("objective AdversaryResponse;")
     tracker.checkpoint("Pre-solve")
     ampl.solve()
     tracker.checkpoint("solved")
@@ -163,6 +166,7 @@ def main():
 
     if solve_result == "infeasible":
         print("\n--- INFEASIBILITY DETECTED ---")
+        ampl.eval("suffix iis OUT;")
         ampl.set_option("gurobi_options", "iisfind=1 outlev=1")
         for name, con in ampl.get_constraints():
             for index, instance in con:
@@ -224,6 +228,9 @@ def main():
     with open("solution_state.json", "w") as f:
         json.dump(solution_json, f)
     
+    ampl.display("is_scorer")
+    ampl.display("scorer_val")
+
     ampl.close()
     tracker.checkpoint("ampl_closed")
 
