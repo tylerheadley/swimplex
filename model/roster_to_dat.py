@@ -1,9 +1,18 @@
 import json
 import argparse
+import os
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT  = os.path.dirname(SCRIPT_DIR)
 
 def parse_args():
     p = argparse.ArgumentParser(description="Run Roster to Dat Script")
-    p.add_argument("--freeze",       choices=['adv', 'home'], default="home", help="Chooses which set of teams to freeze")
+    p.add_argument("--freeze",  choices=['adv', 'home'], default="home",
+                   help="Chooses which set of teams to freeze")
+    p.add_argument("--season",  default="2025-26-pre-sciac",
+                   help="Season folder under data/ (default: 2025-26-pre-sciac)")
+    p.add_argument("--greedy",  default=None,
+                   help="Path to greedy JSON file (default: model/greedy_results_men.json)")
     return p.parse_args()
 
 def get_event_type(event_str):
@@ -44,10 +53,13 @@ def main():
     args = parse_args()
     home_team = "Claremont-Mudd-Scripps"
 
+    greedy_path = args.greedy or os.path.join(SCRIPT_DIR, "greedy_results_men.json")
+    bp_path     = os.path.join(REPO_ROOT, "data", args.season, "best_performances_men.json")
+
     # Read JSON
-    with open("greedy_results_men.json", 'r') as f:
+    with open(greedy_path, 'r') as f:
         roster_data = json.load(f)
-    with open("data/best_performances_men.json") as f:
+    with open(bp_path) as f:
         team_data = json.load(f)
 
     ath_data = team_data["swimmers"]
@@ -411,11 +423,100 @@ def main():
             for stmt in let_statements:
                 f.write(stmt + "\n")
             f.write("\n")
-        
+
         if fix_statements:
             for stmt in fix_statements:
                 f.write(stmt + "\n")
             f.write("\n")
+
+    # ── Generate home team warmstart file ────────────────────────────────────
+    # Always write home_warmstart.run so minimax_greedy.run can include it.
+    # Contains let statements that reset and re-set home team variables to
+    # the greedy roster values (used as MIP warm start before TotalPoints solve).
+    warmstart_stmts = []
+    qt = f'"{home_team}"'
+
+    # 1. Reset all home team binary variables to 0
+    warmstart_stmts.append(f'let {{a in AthletesTeam[{qt}]}} is_scorer[a] := 0;')
+    warmstart_stmts.append(f'let {{a in AthletesTeam[{qt}]}} is_diver_only[a] := 0;')
+    warmstart_stmts.append(f'let {{a in AthletesTeam[{qt}], e in SoloEvents}} athlete_swims_event_solo[a,e] := 0;')
+    warmstart_stmts.append(f'let {{a in AthletesTeam[{qt}], e in DivingEvents}} athlete_dives_event[a,e] := 0;')
+    warmstart_stmts.append(f'let {{a in AthletesTeam[{qt}], e in RelayEvents, l in Level}} athlete_swims_event_rel[a,e,l] := 0;')
+    warmstart_stmts.append(f'let {{a in AthletesTeam[{qt}], e in MedleyEvents, l in Level, s in Stroke}} athlete_swims_event_med[a,e,l,s] := 0;')
+    warmstart_stmts.append(f'let {{r in RelayEvents, l in Level}} relay_enroll[{qt},r,l] := 0;')
+    warmstart_stmts.append(f'let {{e in MedleyEvents, l in Level}} med_relay_enroll[{qt},e,l] := 0;')
+    warmstart_stmts.append('')
+
+    # 2. Set is_scorer and is_diver_only for each greedy athlete
+    home_roster = rosters.get(home_team, {})
+    home_athletes = {}
+    for _, athlete_info in home_roster.items():
+        if isinstance(athlete_info, dict):
+            home_athletes = athlete_info
+            break
+
+    for athlete, events in home_athletes.items():
+        qa = f'"{athlete}"'
+        warmstart_stmts.append(f'let is_scorer[{qa}] := 1;')
+        if events.get("type") == "diver":
+            warmstart_stmts.append(f'let is_diver_only[{qa}] := 1;')
+
+    warmstart_stmts.append('')
+
+    # 3. Set solo and diving event assignments
+    # Solo/dive event abbreviations (e.g. 100Free) are unquoted AMPL identifiers.
+    for athlete, events in home_athletes.items():
+        qa = f'"{athlete}"'
+        for assignment in events.get("assignments", []):
+            event_name = assignment["event"]
+            if event_name in event_map:
+                event_abbrev = event_map[event_name]
+                qe = f"'{event_abbrev}'"  # solo/dive events need single quotes in AMPL .run context
+                if get_event_type(event_name) == "solo":
+                    warmstart_stmts.append(f'let athlete_swims_event_solo[{qa}, {qe}] := 1;')
+                elif get_event_type(event_name) == "diving":
+                    warmstart_stmts.append(f'let athlete_dives_event[{qa}, {qe}] := 1;')
+
+    warmstart_stmts.append('')
+
+    # 4. Set relay and medley relay participant assignments + relay_enroll
+    # Relay event IDs (FR200 etc.) and Level elements (A/B) are AMPL string set
+    # members — they must be single-quoted in let statements.
+    home_relay = relay_assign.get(home_team, {})
+    stroke_map_legs = {1: "Back", 2: "Breast", 3: "Fly", 4: "Free"}
+
+    for event, event_body in home_relay.items():
+        qe = f"'{event}'"   # e.g. 'FR200'
+        for heat in ["A", "B"]:
+            qh = f"'{heat}'"  # 'A' or 'B'
+            if heat in event_body and event_body[heat] and event_body[heat].get("legs"):
+                legs = event_body[heat]["legs"]
+                if len(legs) == 4:
+                    if "MED" not in event:
+                        # Freestyle relay
+                        warmstart_stmts.append(f'let relay_enroll[{qt}, {qe}, {qh}] := 1;')
+                        for leg in legs:
+                            qa = f'"{leg["name"]}"'
+                            warmstart_stmts.append(
+                                f'let athlete_swims_event_rel[{qa}, {qe}, {qh}] := 1;')
+                    else:
+                        # Medley relay
+                        warmstart_stmts.append(f'let med_relay_enroll[{qt}, {qe}, {qh}] := 1;')
+                        for leg in legs:
+                            qa = f'"{leg["name"]}"'
+                            stroke = leg.get("stroke") or stroke_map_legs.get(leg.get("leg"), "Free")
+                            qs = f"'{stroke}'"
+                            warmstart_stmts.append(
+                                f'let athlete_swims_event_med[{qa}, {qe}, {qh}, {qs}] := 1;')
+                    warmstart_stmts.append('')
+
+    with open("home_warmstart.run", "w") as wf:
+        wf.write("# Auto-generated by roster_to_dat.py — home team greedy warm start\n")
+        wf.write(f"# Home team: {home_team}\n\n")
+        for stmt in warmstart_stmts:
+            wf.write(stmt + "\n")
+
+    print(f"Warmstart written → home_warmstart.run  ({len(warmstart_stmts)} statements)")
 
 if __name__ == "__main__":
     main()

@@ -584,7 +584,6 @@ _SOLO_EVENT_NAMES: dict[str, str] = {
     "free100":   "100 Yard Freestyle",
     "free200":   "200 Yard Freestyle",
     "free500":   "500 Yard Freestyle",
-    "free1000":  "1000 Yard Freestyle",
     "free1650":  "1650 Yard Freestyle",
     "back100":   "100 Yard Backstroke",
     "back200":   "200 Yard Backstroke",

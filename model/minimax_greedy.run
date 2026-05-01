@@ -21,8 +21,7 @@ option solver "gurobi";
 # display placement_med;
 # display is_diver_only;
 
-option gurobi_options 'outlev=1';
-option gurobi_options 'mipgap=0.025';
+option gurobi_options 'outlev=1 mipgap=0.025';
 
 # Set the integrality tolerance for the presolver
 option presolve_inteps 1.32e-06;
@@ -43,9 +42,16 @@ unfix {a in AthletesTeam[home_team], e in SoloEvents} athlete_swims_event_solo[a
 unfix {a in AthletesTeam[home_team], e in RelayEvents, l in Level} athlete_swims_event_rel[a,e,l];
 unfix {a in AthletesTeam[home_team], e in MedleyEvents, l in Level, s in Stroke} athlete_swims_event_med[a,e,l,s];
 unfix {a in AthletesTeam[home_team], e in DivingEvents} athlete_dives_event[a,e];
+unfix {a in AthletesTeam[home_team]} is_scorer[a];
+unfix {a in AthletesTeam[home_team]} is_diver_only[a];
+unfix {r in RelayEvents, l in Level} relay_enroll[home_team, r, l];
+unfix {e in MedleyEvents, l in Level} med_relay_enroll[home_team, e, l];
 
-option gurobi_options 'outlev=1';
-option gurobi_options 'mipgap=0.025';
+# Warm-start home team from greedy roster values (re-apply after AdversaryResponse solve)
+include home_warmstart.run;
+
+# iisfind=1: Gurobi will report violated constraints if warm start is infeasible
+option gurobi_options 'outlev=1 mipgap=0.025 iisfind=1';
 
 objective TotalPoints;
 solve;

@@ -2,6 +2,8 @@
 *.json
 *.dat
 *.csv
+*.nl
+*.ilp
 data/
 __pycache__/
 

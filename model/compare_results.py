@@ -45,7 +45,6 @@ MODEL_TO_GT_EVENT = {
     "100 Yard Freestyle":   "100 Yard Freestyle",
     "200 Yard Freestyle":   "200 Yard Freestyle",
     "500 Yard Freestyle":   "500 Yard Freestyle",
-    "1000 Yard Freestyle":  "1000 Yard Freestyle",
     "1650 Yard Freestyle":  "1650 Yard Freestyle",
     "100 Yard Butterfly":   "100 Yard Butterfly",
     "200 Yard Butterfly":   "200 Yard Butterfly",

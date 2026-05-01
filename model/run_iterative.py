@@ -18,10 +18,23 @@ Usage:
 """
 
 import argparse
+import datetime
 import json
+import os
+import platform
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+try:
+    import psutil as _psutil
+    _PROC = _psutil.Process(os.getpid())
+    def _rss_mb() -> float:
+        return _PROC.memory_info().rss / 1024 ** 2
+except ImportError:
+    def _rss_mb() -> float:
+        return 0.0
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -197,6 +210,68 @@ def unfix_team(ampl: AMPL, team: str) -> None:
               f"athlete_swims_event_med[a,e,l,s];")
     ampl.eval(f"unfix {{a in AthletesTeam[{qt}]}} is_scorer[a];")
     ampl.eval(f"unfix {{a in AthletesTeam[{qt}]}} is_diver_only[a];")
+    ampl.eval(f"unfix {{r in RelayEvents, l in Level}} relay_enroll[{qt},r,l];")
+    ampl.eval(f"unfix {{e in MedleyEvents, l in Level}} med_relay_enroll[{qt},e,l];")
+
+
+def warmstart_team(ampl: AMPL, team: str, roster: dict, relay_data: dict) -> None:
+    """Set (but do NOT fix) home team decision variables to greedy values as MIP warm start."""
+    athletes_info = roster.get("athletes", {})
+    qt = q(team)
+
+    # Zero everything out first
+    ampl.eval(f"let {{a in AthletesTeam[{qt}], e in SoloEvents}} "
+              f"athlete_swims_event_solo[a,e] := 0;")
+    ampl.eval(f"let {{a in AthletesTeam[{qt}], e in DivingEvents}} "
+              f"athlete_dives_event[a,e] := 0;")
+    ampl.eval(f"let {{a in AthletesTeam[{qt}], e in RelayEvents, l in Level}} "
+              f"athlete_swims_event_rel[a,e,l] := 0;")
+    ampl.eval(f"let {{a in AthletesTeam[{qt}], e in MedleyEvents, l in Level, s in Stroke}} "
+              f"athlete_swims_event_med[a,e,l,s] := 0;")
+    ampl.eval(f"let {{a in AthletesTeam[{qt}]}} is_scorer[a] := 0;")
+    ampl.eval(f"let {{a in AthletesTeam[{qt}]}} is_diver_only[a] := 0;")
+    ampl.eval(f"let {{r in RelayEvents, l in Level}} relay_enroll[{qt},r,l] := 0;")
+    ampl.eval(f"let {{e in MedleyEvents, l in Level}} med_relay_enroll[{qt},e,l] := 0;")
+
+    # Set individual event assignments
+    for ath_name, ath_data in athletes_info.items():
+        qa = q(ath_name)
+        is_diver = ath_data.get("type") == "diver"
+        ampl.eval(f"let is_scorer[{qa}] := 1;")
+        if is_diver:
+            ampl.eval(f"let is_diver_only[{qa}] := 1;")
+
+        for assignment in ath_data.get("assignments", []):
+            evt_name = assignment["event"]
+            if evt_name in SOLO_REV:
+                ampl.eval(f"let athlete_swims_event_solo[{qa}, "
+                          f"'{SOLO_REV[evt_name]}'] := 1;")
+            elif evt_name in DIVE_REV:
+                ampl.eval(f"let athlete_dives_event[{qa}, "
+                          f"'{DIVE_REV[evt_name]}'] := 1;")
+
+    # Set freestyle relay participants and relay_enroll
+    for relay_id in RELAY_EVENTS:
+        for heat in ["A", "B"]:
+            heat_info = relay_data.get(relay_id, {}).get(heat)
+            if heat_info and heat_info.get("legs") and len(heat_info["legs"]) == 4:
+                ampl.eval(f"let relay_enroll[{qt}, '{relay_id}', '{heat}'] := 1;")
+                for leg in heat_info["legs"]:
+                    qa = q(leg["name"])
+                    ampl.eval(f"let athlete_swims_event_rel[{qa}, "
+                              f"'{relay_id}', '{heat}'] := 1;")
+
+    # Set medley relay participants and med_relay_enroll
+    for med_id in MEDLEY_EVENTS:
+        for heat in ["A", "B"]:
+            heat_info = relay_data.get(med_id, {}).get(heat)
+            if heat_info and heat_info.get("legs") and len(heat_info["legs"]) == 4:
+                ampl.eval(f"let med_relay_enroll[{qt}, '{med_id}', '{heat}'] := 1;")
+                for leg in heat_info["legs"]:
+                    qa = q(leg["name"])
+                    stroke = leg["stroke"]
+                    ampl.eval(f"let athlete_swims_event_med[{qa}, "
+                              f"'{med_id}', '{heat}', '{stroke}'] := 1;")
 
 
 def extract_roster(ampl: AMPL, team: str) -> tuple[dict, dict]:
@@ -271,12 +346,19 @@ def optimize_team(
     all_relays: dict[str, dict],
     solver: str = "gurobi",
     time_limit: int | None = None,
-) -> tuple[float | None, dict | None, dict | None]:
-    """Fix 8 opponents, optimise *home_team*. Returns (obj, roster, relays)."""
+    mip_gap: float = 0.025,
+) -> tuple[float | None, dict | None, dict | None, dict]:
+    """Fix 8 opponents, optimise *home_team*.
+    Returns (obj, roster, relays, solve_record).
+    solve_record always present (contains result/timing even on infeasible).
+    """
 
     print(f"\n{'─'*60}")
     print(f"  Optimising: {home_team}")
     print(f"{'─'*60}")
+
+    t_start = time.perf_counter()
+    ram_before = _rss_mb()
 
     # Reset: unfix everything so prior iteration state is cleared
     ampl.eval("unfix;")
@@ -295,32 +377,112 @@ def optimize_team(
     ampl.param["home_team"] = home_team
     ampl.eval("objective TotalPoints;")
 
+    # Warm-start home team from its current greedy/optimised roster
+    warmstart_team(
+        ampl, home_team,
+        all_rosters.get(home_team, {"athletes": {}}),
+        all_relays.get(home_team, {}),
+    )
+
     # Disable AMPL presolve; let solver handle it directly
     ampl.set_option("presolve", 0)
 
-    # Solver options
+    # Solver options (single call — multiple calls replace, not append)
     ampl.set_option("solver", solver)
-    if time_limit and solver == "gurobi":
-        ampl.set_option("gurobi_options", f"timelim={time_limit} outlev=1")
+    if solver == "gurobi":
+        opts = f"outlev=1 mipgap={mip_gap} iisfind=1"
+        if time_limit:
+            opts += f" timelim={time_limit}"
+        ampl.set_option("gurobi_options", opts)
 
     ampl.solve()
-    solve_result = ampl.get_value("solve_result")
-    print(f"  Solve result: {solve_result}")
+    solve_result = str(ampl.get_value("solve_result"))
+    runtime_s = time.perf_counter() - t_start
+    ram_after = _rss_mb()
 
-    if "infeasible" in str(solve_result):
+    print(f"  Solve result: {solve_result}  ({runtime_s:.1f}s)")
+
+    solve_record = {
+        "result":    solve_result,
+        "runtime_s": round(runtime_s, 2),
+        "ram_before_mb": round(ram_before, 1),
+        "ram_after_mb":  round(ram_after, 1),
+        "obj": None,
+        "mip_gap": None,
+    }
+
+    if "infeasible" in solve_result:
         print("  *** INFEASIBLE — skipping ***")
-        return None, None, None
+        return None, None, None, solve_record
 
     obj_val = ampl.get_value("TotalPoints")
     print(f"  TotalPoints: {obj_val:.1f}")
 
+    # MIP gap: (best_bound - obj) / obj  — read from AMPL solve_message if available
+    try:
+        mip_gap = float(ampl.get_value("_mipgap"))
+    except Exception:
+        mip_gap = None
+
+    solve_record["obj"]     = round(obj_val, 4)
+    solve_record["mip_gap"] = round(mip_gap, 6) if mip_gap is not None else None
+
     opt_roster, opt_relays = extract_roster(ampl, home_team)
-    return obj_val, opt_roster, opt_relays
+    return obj_val, opt_roster, opt_relays, solve_record
 
 
 # ---------------------------------------------------------------------------
 # Display helpers
 # ---------------------------------------------------------------------------
+
+def diff_rosters(
+    old_roster: dict, new_roster: dict,
+    old_relays: dict, new_relays: dict,
+) -> dict:
+    """Return a structured diff between two rosters (individual + relay) for the same team."""
+    old_ath = old_roster.get("athletes", {})
+    new_ath = new_roster.get("athletes", {})
+
+    old_names = set(old_ath)
+    new_names = set(new_ath)
+
+    # Individual event changes
+    event_changes: dict = {}
+    for name in old_names & new_names:
+        old_evts = {a["event"] for a in old_ath[name].get("assignments", [])}
+        new_evts = {a["event"] for a in new_ath[name].get("assignments", [])}
+        if old_evts != new_evts:
+            event_changes[name] = {
+                "dropped": sorted(old_evts - new_evts),
+                "added":   sorted(new_evts - old_evts),
+            }
+
+    # Relay changes: compare enrolled heats and leg compositions
+    relay_changes: dict = {}
+    all_relay_ids = list(RELAY_EVENTS.keys()) + list(MEDLEY_EVENTS.keys())
+    for rid in all_relay_ids:
+        for heat in ["A", "B"]:
+            key = f"{rid}-{heat}"
+            old_heat = (old_relays.get(rid) or {}).get(heat)
+            new_heat = (new_relays.get(rid) or {}).get(heat)
+            old_legs = sorted(l["name"] for l in old_heat["legs"]) if old_heat and old_heat.get("legs") else []
+            new_legs = sorted(l["name"] for l in new_heat["legs"]) if new_heat and new_heat.get("legs") else []
+            old_enrolled = len(old_legs) == 4
+            new_enrolled = len(new_legs) == 4
+            if old_enrolled != new_enrolled or old_legs != new_legs:
+                relay_changes[key] = {
+                    "enrolled": {"before": old_enrolled, "after": new_enrolled},
+                    "legs_dropped": sorted(set(old_legs) - set(new_legs)),
+                    "legs_added":   sorted(set(new_legs) - set(old_legs)),
+                }
+
+    return {
+        "added_to_roster":     sorted(new_names - old_names),
+        "removed_from_roster": sorted(old_names - new_names),
+        "event_changes":       event_changes,
+        "relay_changes":       relay_changes,
+    }
+
 
 def print_roster(team: str, roster: dict, relay_data: dict) -> None:
     athletes = roster.get("athletes", {})
@@ -356,6 +518,62 @@ def print_scoreboard(label: str, scores: dict[str, float]) -> None:
         print(f"  {team:<28} {scores.get(team, 0):>7.1f}")
 
 
+def plot_score_history(
+    score_history: dict[str, list[float]],
+    phase_labels: list[str],
+    save_path: str,
+) -> None:
+    """Plot each team's score across all phases (greedy → step3 → IBR rounds)."""
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.cm as cm
+        import numpy as np
+    except ImportError:
+        print("matplotlib not installed — skipping plot.")
+        return
+
+    fig, ax = plt.subplots(figsize=(max(10, len(phase_labels) * 1.5), 6))
+
+    colors = cm.tab10(np.linspace(0, 1, len(SCIAC_TEAMS)))
+    x = range(len(phase_labels))
+
+    for (team, scores), color in zip(
+        sorted(score_history.items(), key=lambda kv: -kv[1][-1]), colors
+    ):
+        ax.plot(x, scores, marker="o", linewidth=2, label=team, color=color)
+        ax.annotate(f"{scores[-1]:.0f}", xy=(len(phase_labels) - 1, scores[-1]),
+                    xytext=(4, 0), textcoords="offset points",
+                    va="center", fontsize=8, color=color)
+
+    # Vertical separators between phase groups (Greedy | S3:* | R1:* | R2:* …)
+    def phase_group(label: str) -> str:
+        if label == "Greedy":
+            return "Greedy"
+        if label.startswith("S3:"):
+            return "S3"
+        # R1:CMS, R2:PP → group by round number
+        return label.split(":")[0]
+
+    phase_boundaries = []
+    for i in range(1, len(phase_labels)):
+        if phase_group(phase_labels[i]) != phase_group(phase_labels[i - 1]):
+            phase_boundaries.append(i - 0.5)
+    for xb in phase_boundaries:
+        ax.axvline(xb, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(phase_labels, rotation=25, ha="right", fontsize=9)
+    ax.set_ylabel("Score (points)")
+    ax.set_title("SCIAC Team Scores: Greedy → Step 3 → Iterative Best Response")
+    ax.legend(loc="upper left", fontsize=8, ncol=2)
+    ax.grid(axis="y", alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+    print(f"\n  Score history plot saved → {save_path}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -381,6 +599,8 @@ def main() -> None:
     ap.add_argument("--solver",  default="gurobi")
     ap.add_argument("--time-limit", type=int, default=None,
                     help="Solver time limit in seconds per solve.")
+    ap.add_argument("--mip-gap", type=float, default=0.025,
+                    help="Gurobi MIP gap tolerance per solve (default: 0.025).")
     ap.add_argument("--model", default=str(DEFAULT_MOD),
                     help="Path to .mod file (default: Swimplex_time_rw.mod).")
     args = ap.parse_args()
@@ -390,14 +610,38 @@ def main() -> None:
     dat_path     = DATA_DIR / args.season / f"best_performances_{gender_lower}.dat"
     mod_path     = Path(args.model)
 
+    # ── Metadata setup ───────────────────────────────────────────────────────
+    started_at = datetime.datetime.now()
+    t0 = time.perf_counter()
+    peak_ram_mb = _rss_mb()
+
+    def update_peak() -> None:
+        nonlocal peak_ram_mb
+        peak_ram_mb = max(peak_ram_mb, _rss_mb())
+
+    try:
+        git_commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(REPO_ROOT), text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        git_commit = "unknown"
+
+    timings: dict[str, float] = {}
+    solve_records: dict[str, dict] = {}   # phase_label → solve_record
+
     # ── Step 1: Pipeline ─────────────────────────────────────────────────────
     print("="*60)
     print("  Step 1: Data pipeline")
     print("="*60)
     if args.skip_pipeline:
         print("  Skipped (--skip-pipeline).")
+        timings["pipeline_s"] = 0.0
     else:
+        _t = time.perf_counter()
         run_pipeline(args.season, args.gender, args.date_to)
+        timings["pipeline_s"] = round(time.perf_counter() - _t, 2)
+        update_peak()
 
     if not dat_path.exists():
         sys.exit(f"ERROR: .dat file not found: {dat_path}\n"
@@ -408,11 +652,14 @@ def main() -> None:
     print("  Step 2: Greedy rosters")
     print("="*60)
 
+    _t = time.perf_counter()
     rosters, relay_assignments, swimmers = load_greedy(bp_rel_path)
     indiv_scores = evaluate_rosters(rosters)
     relay_scores = evaluate_relay_scores(relay_assignments)
     greedy_totals = {t: indiv_scores.get(t, 0) + relay_scores.get(t, 0)
                      for t in SCIAC_TEAMS}
+    timings["greedy_s"] = round(time.perf_counter() - _t, 2)
+    update_peak()
 
     print_scoreboard("Greedy predicted scores", greedy_totals)
 
@@ -442,6 +689,29 @@ def main() -> None:
     optimized_rosters: dict[str, dict] = {}
     optimized_relays:  dict[str, dict] = {}
 
+    # Score history: team → [score at each phase]; phase_labels tracks x-axis labels
+    score_history: dict[str, list[float]] = {t: [greedy_totals.get(t, 0)] for t in SCIAC_TEAMS}
+    phase_labels: list[str] = ["Greedy"]
+
+    SHORT = {
+        "Claremont-Mudd-Scripps": "CMS",
+        "Pomona-Pitzer":          "PP",
+        "Cal Lutheran":           "CLU",
+        "Caltech":                "CIT",
+        "Chapman":                "CHA",
+        "Occidental":             "OXY",
+        "Whittier":               "WHI",
+        "Redlands":               "RED",
+        "La Verne":               "LAV",
+    }
+
+    def record_phase(label: str, updated_team: str, new_score: float) -> None:
+        """Append one phase: carry forward all teams, overwrite updated_team."""
+        phase_labels.append(label)
+        for t in SCIAC_TEAMS:
+            prev = score_history[t][-1]
+            score_history[t].append(new_score if t == updated_team else prev)
+
     # ── Step 3: Optimise each team individually ──────────────────────────────
     if not args.skip_all_teams:
         print("\n" + "="*60)
@@ -449,15 +719,22 @@ def main() -> None:
         print("="*60)
 
         for home_team in SCIAC_TEAMS:
-            obj, opt_r, opt_rl = optimize_team(
+            prev_roster = all_rosters.get(home_team, {"athletes": {}})
+            prev_relays = all_relays.get(home_team, {})
+            obj, opt_r, opt_rl, srec = optimize_team(
                 ampl, home_team, all_rosters, all_relays,
-                args.solver, args.time_limit,
+                args.solver, args.time_limit, args.mip_gap,
             )
+            phase_key = f"S3:{SHORT.get(home_team, home_team)}"
+            solve_records[phase_key] = {"team": home_team, **srec}
+            update_peak()
             if obj is not None:
+                solve_records[phase_key]["roster_diff"] = diff_rosters(prev_roster, opt_r, prev_relays, opt_rl)
                 optimized_scores[home_team] = obj
                 optimized_rosters[home_team] = opt_r
                 optimized_relays[home_team]  = opt_rl
                 print_roster(home_team, opt_r, opt_rl)
+                record_phase(phase_key, home_team, obj)
 
         print_scoreboard("Step 3: Each team optimised vs greedy opponents",
                          optimized_scores)
@@ -469,9 +746,10 @@ def main() -> None:
               f"({args.iterations} rounds, {', '.join(args.br_teams)})")
         print("="*60)
 
-        # Seed with step-3 optimised rosters for BR teams (if available),
-        # otherwise keep greedy.
-        for team in args.br_teams:
+        # Seed all_rosters with step-3 optimised rosters for every team that was
+        # solved (not just BR teams), so IBR opponents use the best available
+        # roster rather than the greedy baseline.
+        for team in SCIAC_TEAMS:
             if team in optimized_rosters:
                 all_rosters[team] = optimized_rosters[team]
                 all_relays[team]  = optimized_relays[team]
@@ -482,11 +760,17 @@ def main() -> None:
             print(f"{'━'*60}")
 
             for home_team in args.br_teams:
-                obj, opt_r, opt_rl = optimize_team(
+                prev_roster = all_rosters.get(home_team, {"athletes": {}})
+                prev_relays = all_relays.get(home_team, {})
+                obj, opt_r, opt_rl, srec = optimize_team(
                     ampl, home_team, all_rosters, all_relays,
-                    args.solver, args.time_limit,
+                    args.solver, args.time_limit, args.mip_gap,
                 )
+                phase_key = f"R{rnd}:{SHORT.get(home_team, home_team)}"
+                solve_records[phase_key] = {"team": home_team, **srec}
+                update_peak()
                 if obj is not None:
+                    solve_records[phase_key]["roster_diff"] = diff_rosters(prev_roster, opt_r, prev_relays, opt_rl)
                     prev = optimized_scores.get(home_team, greedy_totals.get(home_team, 0))
                     optimized_scores[home_team] = obj
                     optimized_rosters[home_team] = opt_r
@@ -497,6 +781,7 @@ def main() -> None:
                           f"({'↑' if obj > prev else '↓' if obj < prev else '='}"
                           f" {abs(obj - prev):.1f})")
                     print_roster(home_team, opt_r, opt_rl)
+                    record_phase(phase_key, home_team, obj)
 
     # ── Final summary ────────────────────────────────────────────────────────
     print("\n" + "="*60)
@@ -512,8 +797,36 @@ def main() -> None:
         print(f"  {team:<28} {g:>7.1f}  {o:>9.1f}  {d:>+7.1f}")
 
     # Save results
+    finished_at = datetime.datetime.now()
+    total_runtime_s = round(time.perf_counter() - t0, 2)
+    update_peak()
+
     results_path = DATA_DIR / args.season / f"model_results_{gender_lower}.json"
     results = {
+        "meta": {
+            "started_at":      started_at.isoformat(timespec="seconds"),
+            "finished_at":     finished_at.isoformat(timespec="seconds"),
+            "total_runtime_s": total_runtime_s,
+            "peak_ram_mb":     round(peak_ram_mb, 1),
+            "git_commit":      git_commit,
+            "solver":          args.solver,
+            "platform":        platform.platform(),
+            "python_version":  platform.python_version(),
+            "args": {
+                "season":         args.season,
+                "gender":         args.gender,
+                "date_to":        args.date_to,
+                "skip_pipeline":  args.skip_pipeline,
+                "skip_all_teams": args.skip_all_teams,
+                "iterations":     args.iterations,
+                "br_teams":       args.br_teams,
+                "time_limit":     args.time_limit,
+                "mip_gap":        args.mip_gap,
+                "model":          str(mod_path),
+            },
+        },
+        "timings": timings,
+        "solve_records": solve_records,
         "season": args.season,
         "gender": args.gender,
         "greedy_scores": greedy_totals,
@@ -532,6 +845,12 @@ def main() -> None:
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\n  Results saved to {results_path}")
+    print(f"  Total runtime: {total_runtime_s:.1f}s  |  Peak RAM: {peak_ram_mb:.0f} MB")
+
+    # ── Plot ──────────────────────────────────────────────────────────────────
+    if len(phase_labels) > 1:
+        plot_path = str(DATA_DIR / args.season / f"score_history_{gender_lower}.png")
+        plot_score_history(score_history, phase_labels, plot_path)
 
 
 if __name__ == "__main__":
