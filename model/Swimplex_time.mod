@@ -14,6 +14,7 @@ set Place_Rank_Rel := 1..card(Team);
 
 param Max_Rank := min(16, card(Athletes)-1); 
 set Place_Rank := 1..Max_Rank;
+
 # SOLO PARAMS
 param solo_time {Athletes, SoloEvents} >= 0;
 param solo_event_lim = 3;
@@ -249,6 +250,10 @@ athlete_swims_event_rel[a, r, l] <= relay_enroll[t, r, l];
 subject to Seperate_AB{t in Team, a in AthletesTeam[t], r in RelayEvents}:
 sum{l in Level} athlete_swims_event_rel[a, r, l] <= 1;
 
+# If A is enrolled then B is enrolled
+subject to IfAThenB{t in Team, r in RelayEvents}:
+sum{a in AthletesTeam[t]} athlete_swims_event_rel[a, r, "A"] = sum{a in AthletesTeam[t]} athlete_swims_event_rel[a, r, "B"];
+
 # Define Faster Times
 subject to Faster_Team_Const{e in RelayEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
 total_rel_time[e,l,t1] <= total_rel_time[e,l,t2] + (M * (1 - is_team_faster[t1, t2,e,l]));
@@ -311,6 +316,14 @@ sum{s in Stroke} athlete_swims_event_med[a, e, l, s] <= med_relay_enroll[t, e, l
 # Mutually Exclusive Levels
 subject to Seperate_AB_Stroke{t in Team, a in AthletesTeam[t], e in MedleyEvents}:
 sum{l in Level, s in Stroke} athlete_swims_event_med[a, e, l, s] <= 1;
+
+# Single Strokes ONLY
+subject to SingleStroke {t in Team, e in MedleyEvents, l in Level, s in Stroke}:
+sum{a in AthletesTeam[t]} athlete_swims_event_med[a, e, l, s] <= 1;
+
+# If A is enrolled then B is enrolled Medley
+subject to IfAThenB_Med{t in Team, r in MedleyEvents}:
+sum{a in AthletesTeam[t], s in Stroke} athlete_swims_event_med[a, r, "A", s] = sum{a in AthletesTeam[t], s in Stroke} athlete_swims_event_med[a, r, "B", s];
 
 # Define Faster Times
 subject to Faster_Team_Const_Med{e in MedleyEvents, l in Level, t1 in Team, t2 in Team : t1 <> t2}:
