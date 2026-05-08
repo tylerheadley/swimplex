@@ -15,6 +15,7 @@ import os
 import logging
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -415,24 +416,68 @@ def api_quality_resolve():
 
 @app.route("/api/model/run", methods=["POST"])
 def api_model_run():
-    body      = request.get_json(force=True)
-    season    = body.get("season", "2025-26")
-    gender    = body.get("gender", "Men")
-    home_team = body.get("home_team", "Claremont-Mudd-Scripps")
-    solver    = body.get("solver", "gurobi")
+    body       = request.get_json(force=True)
+    season     = body.get("season", "2025-26")
+    gender     = body.get("gender", "Men")
+    solver     = body.get("solver", "gurobi")
+    time_limit = body.get("time_limit")
+    mip_gap    = float(body.get("mip_gap", 0.0))
+    br_teams   = body.get("br_teams", ["Claremont-Mudd-Scripps", "Pomona-Pitzer"])
+
+    dat_path = DATA_DIR / season / f"best_performances_{gender.lower()}.dat"
+    if not dat_path.exists():
+        def _err():
+            yield f"data: ERROR: No data file for {season} {gender} — run the pipeline in Step 2 first.\n\n"
+            yield "data: __DONE__\n\n"
+        return Response(stream_with_context(_err()), mimetype="text/event-stream",
+                        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+    cmd = [
+        sys.executable, str(_RUN_ITERATIVE),
+        "--season", season, "--gender", gender,
+        "--solver", solver,
+        "--mip-gap", str(mip_gap),
+        "--skip-pipeline",
+    ]
+    if time_limit:
+        cmd += ["--time-limit", str(time_limit)]
+    if br_teams:
+        cmd += ["--br-teams"] + list(br_teams)
+
+    def _generate():
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+            cwd=str(_PROJECT_ROOT),
+        )
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                yield f"data: {line}\n\n"
+        proc.wait()
+        yield "data: __DONE__\n\n"
+
     return Response(
-        stream_with_context(_sse(_stream_fn(_do_run_model, season, gender, home_team, solver))),
+        stream_with_context(_generate()),
         mimetype="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
 
 
-_RELAY_LEG_EVENT: dict[str, str] = {
+_RELAY_EVENT_NAMES = {
+    "FR200": "200 Free Relay (4×50)",
+    "FR400": "400 Free Relay (4×100)",
+    "FR800": "800 Free Relay (4×200)",
+    "MED200": "200 Medley Relay",
+    "MED400": "400 Medley Relay",
+}
+_RELAY_LEG_EVENT = {
     "FR200": "50 Yard Freestyle (Relay Split)",
     "FR400": "100 Yard Freestyle (Relay Split)",
     "FR800": "200 Yard Freestyle (Relay Split)",
 }
-_MEDLEY_LEG_EVENT: dict[str, dict[str, str]] = {
+_MEDLEY_LEG_EVENT = {
     "MED200": {
         "Back":   "50 Yard Backstroke",
         "Breast": "50 Yard Breaststroke (Relay Split)",
@@ -446,91 +491,144 @@ _MEDLEY_LEG_EVENT: dict[str, dict[str, str]] = {
         "Free":   "100 Yard Freestyle (Relay Split)",
     },
 }
+_RELAY_ORDER = ["FR200", "FR400", "FR800", "MED200", "MED400"]
 
 
-def _enrich_lineup_times(results: dict, season: str, gender: str) -> None:
-    """Add best-time data to solo and relay entries in-place (non-destructive if bp missing)."""
+def _build_relay_rows(team_relays: dict, bp_swimmers: dict) -> list:
+    """Convert raw optimized_relays entry for one team into display-ready rows."""
     from ampl_export import parse_time
 
-    bp_path = DATA_DIR / season / f"best_performances_{gender.lower()}.json"
-    if not bp_path.exists():
-        return
-    swimmers = json.loads(bp_path.read_text()).get("swimmers", {})
+    def _best(name: str, evt: str) -> str | None:
+        return bp_swimmers.get(name, {}).get("events", {}).get(evt, {}).get("best")
 
-    def _best(athlete: str, event_key: str) -> str | None:
-        return swimmers.get(athlete, {}).get("events", {}).get(event_key, {}).get("best")
-
-    for row in results.get("solo", []):
-        t = _best(row["athlete"], _SOLO_EVENT_NAMES.get(row["event_id"], ""))
-        if t:
-            row["time"] = t
-
-    for row in results.get("relay", []):
-        leg_key = _RELAY_LEG_EVENT.get(row["event_id"])
-        if not leg_key:
+    rows = []
+    for relay_id in _RELAY_ORDER:
+        heat_data = team_relays.get(relay_id)
+        if not heat_data:
             continue
-        leg_times: dict[str, str] = {}
-        for ath in row.get("athletes", []):
-            t = _best(ath, leg_key)
-            if t:
-                leg_times[ath] = t
-        row["leg_times"] = leg_times
-        # Total projected time = sum of 4 leg times (skip if any missing)
-        if len(leg_times) == 4:
-            total = sum(parse_time(t) for t in leg_times.values())
-            mins, secs = divmod(total, 60)
-            row["total_time"] = f"{int(mins)}:{secs:05.2f}" if mins else f"{secs:.2f}"
-
-    for row in results.get("medley", []):
-        stroke_map = _MEDLEY_LEG_EVENT.get(row["event_id"], {})
-        leg_times: dict[str, str] = {}
-        for stroke, leg_key in stroke_map.items():
-            ath = row.get("athletes", {}).get(stroke)
-            if ath:
-                t = _best(ath, leg_key)
-                if t:
-                    leg_times[stroke] = t
-        row["leg_times"] = leg_times
-        if len(leg_times) == 4:
-            total = sum(parse_time(t) for t in leg_times.values())
-            mins, secs = divmod(total, 60)
-            row["total_time"] = f"{int(mins)}:{secs:05.2f}" if mins else f"{secs:.2f}"
+        is_medley = relay_id.startswith("MED")
+        heats = {}
+        for heat in ("A", "B"):
+            h = heat_data.get(heat)
+            if not h or not h.get("legs"):
+                heats[heat] = None
+                continue
+            legs = h["legs"]
+            leg_times: dict[str, str] = {}
+            if is_medley:
+                stroke_map = _MEDLEY_LEG_EVENT.get(relay_id, {})
+                for leg in legs:
+                    t = _best(leg["name"], stroke_map.get(leg.get("stroke", ""), ""))
+                    if t:
+                        leg_times[leg["name"]] = t
+            else:
+                leg_evt = _RELAY_LEG_EVENT.get(relay_id, "")
+                for leg in legs:
+                    t = _best(leg["name"], leg_evt)
+                    if t:
+                        leg_times[leg["name"]] = t
+            total_time = None
+            if len(leg_times) == 4:
+                try:
+                    total_s = sum(parse_time(t) for t in leg_times.values())
+                    mins, secs = divmod(total_s, 60)
+                    total_time = f"{int(mins)}:{secs:05.2f}" if mins else f"{secs:.2f}"
+                except Exception:
+                    pass
+            heats[heat] = {"legs": legs, "leg_times": leg_times, "total_time": total_time}
+        rows.append({
+            "event_id": relay_id,
+            "event":    _RELAY_EVENT_NAMES[relay_id],
+            "is_medley": is_medley,
+            "A": heats.get("A"),
+            "B": heats.get("B"),
+        })
+    return rows
 
 
 @app.route("/api/lineup")
 def api_lineup():
     season = request.args.get("season", "2025-26")
     gender = request.args.get("gender", "Men")
-    results = _load_model_results(season, gender)
-    if results is None:
+    raw = _load_model_results(season, gender)
+    if raw is None:
         return jsonify({"error": "No model results found — run model first"}), 404
-    _enrich_lineup_times(results, season, gender)
-    return jsonify(results)
+
+    meta_raw  = raw.get("meta", {})
+    args_raw  = meta_raw.get("args", {})
+    br_teams  = args_raw.get("br_teams", [])
+    greedy    = raw.get("greedy_scores", {})
+    optimized = raw.get("optimized_scores", {})
+
+    all_teams = sorted(set(greedy) | set(optimized),
+                       key=lambda t: -(optimized.get(t) or greedy.get(t, 0)))
+    scoreboard = [
+        {
+            "team":       t,
+            "greedy":     round(greedy.get(t, 0), 1),
+            "optimized":  round(optimized.get(t, greedy.get(t, 0)), 1),
+            "delta":      round((optimized.get(t) or greedy.get(t, 0)) - greedy.get(t, 0), 1),
+            "is_br_team": t in br_teams,
+        }
+        for t in all_teams
+    ]
+
+    # Load best_performances for relay leg time enrichment
+    bp_path = DATA_DIR / season / f"best_performances_{gender.lower()}.json"
+    bp_swimmers = json.loads(bp_path.read_text()).get("swimmers", {}) if bp_path.exists() else {}
+
+    rosters_raw   = raw.get("optimized_rosters", {})
+    relays_raw    = raw.get("optimized_relays", {})
+    rosters = {}
+    for team, roster in rosters_raw.items():
+        athletes = []
+        for n, info in sorted(roster.get("athletes", {}).items()):
+            bp = bp_swimmers.get(n, {}).get("events", {})
+            events_with_times = [
+                {"event": evt, "time": (bp.get(evt) or {}).get("best")}
+                for evt in info.get("events", [])
+            ]
+            athletes.append({"name": n, "type": info.get("type", "swimmer"),
+                              "events": events_with_times})
+        relay_rows = _build_relay_rows(relays_raw.get(team, {}), bp_swimmers)
+        rosters[team] = {"athletes": athletes, "relays": relay_rows}
+
+    return jsonify({
+        "meta": {
+            "solver":   meta_raw.get("solver", ""),
+            "ran_at":   (meta_raw.get("finished_at", "") or "")[:16],
+            "br_teams": br_teams,
+            "season":   raw.get("season", season),
+            "gender":   raw.get("gender", gender),
+        },
+        "scoreboard": scoreboard,
+        "rosters":    rosters,
+    })
 
 
 @app.route("/api/lineup/export/csv")
 def api_lineup_export_csv():
     season = request.args.get("season", "2025-26")
     gender = request.args.get("gender", "Men")
-    results = _load_model_results(season, gender)
-    if results is None:
+    raw = _load_model_results(season, gender)
+    if raw is None:
         return "No model results found", 404
     import csv as csv_mod
     buf = io.StringIO()
     w = csv_mod.writer(buf)
-    home = results.get("home_team", "")
-    w.writerow(["Type", "Event", "Level/Stroke", "Athlete", "Place"])
-    for row in results.get("solo", []):
-        event_label = _SOLO_EVENT_NAMES.get(row["event_id"], row["event_id"])
-        w.writerow(["Solo", event_label, "", row["athlete"], row.get("place", "")])
-    for row in results.get("relay", []):
-        event_label = _RELAY_EVENT_NAMES.get(row["event_id"], row["event_id"])
-        for ath in row.get("athletes", []):
-            w.writerow(["Relay", event_label, row["level"], ath, row.get("place", "")])
-    for row in results.get("medley", []):
-        event_label = _MEDLEY_EVENT_NAMES.get(row["event_id"], row["event_id"])
-        for stroke, ath in row.get("athletes", {}).items():
-            w.writerow(["Medley", event_label, stroke, ath, row.get("place", "")])
+    w.writerow(["Team", "Greedy Score", "Optimized Score", "Delta"])
+    greedy    = raw.get("greedy_scores", {})
+    optimized = raw.get("optimized_scores", {})
+    for team in sorted(greedy):
+        g = round(greedy.get(team, 0), 1)
+        o = round(optimized.get(team, g), 1)
+        w.writerow([team, g, o, round(o - g, 1)])
+    w.writerow([])
+    w.writerow(["Team", "Athlete", "Type", "Events"])
+    for team, roster in sorted(raw.get("optimized_rosters", {}).items()):
+        for name, info in sorted(roster.get("athletes", {}).items()):
+            evts = "; ".join(info.get("events", []))
+            w.writerow([team, name, info.get("type", ""), evts])
     buf.seek(0)
     return Response(buf.read(), mimetype="text/csv",
                     headers={"Content-Disposition":
@@ -576,33 +674,7 @@ def api_export_json():
 # Model integration
 # ---------------------------------------------------------------------------
 
-_AMPL_PATH = "/Applications/AMPL"
-_MOD_FILE  = _PROJECT_ROOT / "model" / "Swimplex_time.mod"
-
-_SOLO_EVENT_NAMES: dict[str, str] = {
-    "free50":    "50 Yard Freestyle",
-    "free100":   "100 Yard Freestyle",
-    "free200":   "200 Yard Freestyle",
-    "free500":   "500 Yard Freestyle",
-    "free1650":  "1650 Yard Freestyle",
-    "back100":   "100 Yard Backstroke",
-    "back200":   "200 Yard Backstroke",
-    "breast100": "100 Yard Breaststroke",
-    "breast200": "200 Yard Breaststroke",
-    "fly100":    "100 Yard Butterfly",
-    "fly200":    "200 Yard Butterfly",
-    "im200":     "200 Yard IM",
-    "im400":     "400 Yard IM",
-}
-_RELAY_EVENT_NAMES: dict[str, str] = {
-    "FR200": "200 Free Relay (4×50)",
-    "FR400": "400 Free Relay (4×100)",
-    "FR800": "800 Free Relay (4×200)",
-}
-_MEDLEY_EVENT_NAMES: dict[str, str] = {
-    "MED200": "200 Medley Relay",
-    "MED400": "400 Medley Relay",
-}
+_RUN_ITERATIVE = _PROJECT_ROOT / "model" / "run_iterative.py"
 
 
 def _model_results_path(season: str, gender: str) -> Path:
@@ -620,173 +692,6 @@ def _save_model_results(season: str, gender: str, results: dict) -> None:
     p = _model_results_path(season, gender)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(results, indent=2))
-
-
-def _do_run_model(season: str, gender: str, home_team: str, solver: str) -> None:
-    log = logging.getLogger(__name__)
-
-    # Step 1 — regenerate .dat file
-    log.info("Generating AMPL data file for %s %s (home: %s)…", season, gender, home_team)
-    old_argv = sys.argv
-    sys.argv = ["ampl_export.py", "--season", season, "--gender", gender, "--home-team", home_team]
-    try:
-        import ampl_export
-        ampl_export.main()
-    except SystemExit:
-        pass
-    finally:
-        sys.argv = old_argv
-
-    dat_path = DATA_DIR / season / f"best_performances_{gender.lower()}.dat"
-    if not dat_path.exists():
-        log.error("DAT file not found after export: %s", dat_path)
-        return
-    if not _MOD_FILE.exists():
-        log.error("Model file not found: %s", _MOD_FILE)
-        return
-
-    log.info("Model : %s", _MOD_FILE.name)
-    log.info("Data  : %s", dat_path.name)
-    log.info("Solver: %s", solver)
-
-    # Step 2 — run AMPL
-    from amplpy import AMPL, add_to_path
-    add_to_path(_AMPL_PATH)
-
-    ampl = AMPL()
-    ampl.read(str(_MOD_FILE))
-    ampl.read_data(str(dat_path))
-    ampl.set_option("solver", solver)
-    ampl.param["home_team"] = home_team
-
-    actual_home = str(ampl.param["home_team"].value())
-    log.info("home_team: %s", actual_home)
-    log.info("Solving… (this may take a few minutes)")
-
-    ampl.solve()
-    solve_result = ampl.get_value("solve_result")
-    log.info("Solve result: %s", solve_result)
-
-    results: dict = {
-        "status":    solve_result,
-        "home_team": actual_home,
-        "season":    season,
-        "gender":    gender,
-        "solver":    solver,
-        "ran_at":    time.strftime("%Y-%m-%d %H:%M"),
-        "objective": None,
-        "solo":      [],
-        "relay":     [],
-        "medley":    [],
-        "scorers":   [],
-    }
-
-    if solve_result == "infeasible":
-        log.error("Model is infeasible — no lineup produced.")
-        _save_model_results(season, gender, results)
-        return
-
-    obj_val = ampl.get_value("TotalPoints")
-    results["objective"] = round(float(obj_val), 1)
-    log.info("Objective (TotalPoints): %.1f", obj_val)
-
-    # Get home team roster from best_performances JSON (needed to filter all variables)
-    home_athletes: set[str] = set()
-    bp_path = DATA_DIR / season / f"best_performances_{gender.lower()}.json"
-    if bp_path.exists():
-        bp_data = json.loads(bp_path.read_text())
-        for name, info in bp_data["swimmers"].items():
-            if info.get("school") == home_team and info.get("type") != "diver":
-                home_athletes.add(name)
-    log.info("Home team roster: %d athletes", len(home_athletes))
-
-    # ── Solo assignments (home team only) ─────────────────────────────────────
-    try:
-        solo_place = ampl.get_variable("placement_solo").get_values().to_dict()
-        solo_swims = ampl.get_variable("athlete_swims_event_solo").get_values().to_dict()
-        # solo_swims keys: (athlete, event); solo_place keys: (event, athlete)
-        swimming = {(a, e) for (a, e), v in solo_swims.items() if v > 0.5}
-        for (event, athlete), place in sorted(solo_place.items(), key=lambda x: (x[0][0], x[0][1])):
-            if (athlete, event) not in swimming:
-                continue
-            if home_athletes and athlete not in home_athletes:
-                continue
-            results["solo"].append({
-                "event_id": event,
-                "event":    _SOLO_EVENT_NAMES.get(event, event),
-                "athlete":  athlete,
-                "place":    int(round(float(place))),
-            })
-        log.info("Solo assignments extracted: %d", len(results["solo"]))
-    except Exception as exc:
-        log.warning("Could not extract solo placements: %s", exc)
-
-    # ── Relay assignments (home team legs only) ───────────────────────────────
-    try:
-        relay_enroll = ampl.get_variable("relay_enroll").get_values().to_dict()
-        rel_swims    = ampl.get_variable("athlete_swims_event_rel").get_values().to_dict()
-        placement    = ampl.get_variable("placement").get_values().to_dict()
-        for (team, event, level), enrolled in relay_enroll.items():
-            if team != actual_home or enrolled < 0.5:
-                continue
-            place = placement.get((actual_home, event, level))
-            athletes_on = sorted(
-                a for (a, e, l), v in rel_swims.items()
-                if e == event and l == level and v > 0.5
-                and (not home_athletes or a in home_athletes)
-            )
-            results["relay"].append({
-                "event_id": event,
-                "event":    _RELAY_EVENT_NAMES.get(event, event),
-                "level":    level,
-                "place":    int(round(float(place))) if place is not None else None,
-                "athletes": athletes_on,
-            })
-        log.info("Relay assignments extracted: %d", len(results["relay"]))
-    except Exception as exc:
-        log.warning("Could not extract relay placements: %s", exc)
-
-    # ── Medley assignments (home team legs only) ──────────────────────────────
-    try:
-        med_enroll  = ampl.get_variable("med_relay_enroll").get_values().to_dict()
-        med_swims   = ampl.get_variable("athlete_swims_event_med").get_values().to_dict()
-        placement_m = ampl.get_variable("placement_med").get_values().to_dict()
-        for (team, event, level), enrolled in med_enroll.items():
-            if team != actual_home or enrolled < 0.5:
-                continue
-            place = placement_m.get((actual_home, event, level))
-            stroke_map: dict[str, str] = {}
-            for (a, e, l, stroke), v in med_swims.items():
-                if e == event and l == level and v > 0.5:
-                    if not home_athletes or a in home_athletes:
-                        stroke_map[stroke] = a
-            results["medley"].append({
-                "event_id": event,
-                "event":    _MEDLEY_EVENT_NAMES.get(event, event),
-                "level":    level,
-                "place":    int(round(float(place))) if place is not None else None,
-                "athletes": stroke_map,
-            })
-        log.info("Medley assignments extracted: %d", len(results["medley"]))
-    except Exception as exc:
-        log.warning("Could not extract medley placements: %s", exc)
-
-    # ── Scorers (home team athletes that are activated) ───────────────────────
-    # scorer[athlete, team] = 1 for ALL teams when the athlete swims anything,
-    # so we filter by membership in the home team roster instead.
-    try:
-        scorer_vals = ampl.get_variable("scorer").get_values().to_dict()
-        activated = {a for (a, t), v in scorer_vals.items() if v > 0.5}
-        results["scorers"] = sorted(
-            a for a in activated
-            if not home_athletes or a in home_athletes
-        )
-        log.info("Scorers: %d", len(results["scorers"]))
-    except Exception as exc:
-        log.warning("Could not extract scorer list: %s", exc)
-
-    _save_model_results(season, gender, results)
-    log.info("Results saved. Objective = %.1f pts", obj_val)
 
 
 # ---------------------------------------------------------------------------

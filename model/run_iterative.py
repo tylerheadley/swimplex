@@ -141,7 +141,7 @@ def fix_team_to_greedy(ampl: AMPL, team: str, roster: dict, relay_data: dict) ->
             if evt_name in SOLO_REV:
                 ampl.eval(f"let athlete_swims_event_solo[{qa}, "
                           f"'{SOLO_REV[evt_name]}'] := 1;")
-            elif evt_name in DIVE_REV:
+            elif evt_name in DIVE_REV and is_diver:
                 ampl.eval(f"let athlete_dives_event[{qa}, "
                           f"'{DIVE_REV[evt_name]}'] := 1;")
 
@@ -246,7 +246,7 @@ def warmstart_team(ampl: AMPL, team: str, roster: dict, relay_data: dict) -> Non
             if evt_name in SOLO_REV:
                 ampl.eval(f"let athlete_swims_event_solo[{qa}, "
                           f"'{SOLO_REV[evt_name]}'] := 1;")
-            elif evt_name in DIVE_REV:
+            elif evt_name in DIVE_REV and is_diver:
                 ampl.eval(f"let athlete_dives_event[{qa}, "
                           f"'{DIVE_REV[evt_name]}'] := 1;")
 
@@ -423,7 +423,7 @@ def optimize_team(
 
             for index, status in iis_values.items():
                 if status != 'non':
-                    print(f"Constraint Team_Scorer_Cap[{index}] is in the IIS (Status: {status})")
+                    print(f"Constraint {name}[{index}] is in the IIS (Status: {status})")
         sys.exit(0)
         return None, None, None, solve_record
 

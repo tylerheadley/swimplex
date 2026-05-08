@@ -135,6 +135,10 @@ def build_performance_entries(swimmers: Dict[str, Any]) -> List[Dict]:
                 continue
 
             is_diving = event in DIVING_EVENTS
+            # Hybrid athletes can't be set as is_diver_only in the AMPL model
+            # (that would block all their swimming), so skip their diving events.
+            if is_diving and athlete_type == "hybrid":
+                continue
             raw = perf.get("best", "")
             if is_diving:
                 try:

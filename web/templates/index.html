@@ -139,6 +139,16 @@ input, select { font: inherit; }
 #log-panel .log-warn  { color: #fbbf24; }
 #log-panel .log-done  { color: #34d399; font-weight: bold; }
 
+/* ── Info tooltip ── */
+.info-tip { position:relative; display:inline-flex; align-items:center; justify-content:center;
+  width:14px; height:14px; border-radius:50%; background:#d1d5db; color:#374151;
+  font-size:10px; font-weight:700; cursor:default; flex-shrink:0; }
+.info-tip::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%;
+  transform:translateX(-50%); background:#1f2937; color:#f9fafb; font-size:11px; font-weight:400;
+  line-height:1.5; padding:6px 10px; border-radius:6px; white-space:normal; width:260px;
+  pointer-events:none; opacity:0; transition:opacity .15s; z-index:100; }
+.info-tip:hover::after, .info-tip:focus::after { opacity:1; }
+
 /* ── Tabs ── */
 .tabs { display: flex; border-bottom: 2px solid #e5e7eb; margin-bottom: 16px; }
 .tab-btn {
@@ -619,27 +629,65 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
     <div class="card">
       <div class="card-title">Model Parameters</div>
 
-      <div class="param-row">
-        <label>Home team</label>
-        <select id="model-home-team" style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;font-size:13px;background:#fafafa;min-width:200px;">
-          <option>Claremont-Mudd-Scripps</option>
-          <option>Cal Lutheran</option>
-          <option>Caltech</option>
-          <option>Chapman</option>
-          <option>Occidental</option>
-          <option>Pomona-Pitzer</option>
-          <option>La Verne</option>
-          <option>Redlands</option>
-          <option>Whittier</option>
-        </select>
+      <!-- Adversarial Teams (br-teams) -->
+      <div class="param-row" style="align-items:flex-start;">
+        <label style="padding-top:4px;">Adversarial Optimization Teams</label>
+        <div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px 14px;" id="br-teams-checkboxes">
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Claremont-Mudd-Scripps" checked> Claremont-Mudd-Scripps</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Cal Lutheran"> Cal Lutheran</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Caltech"> Caltech</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Chapman"> Chapman</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Occidental"> Occidental</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Pomona-Pitzer" checked> Pomona-Pitzer</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="La Verne"> La Verne</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Redlands"> Redlands</label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" value="Whittier"> Whittier</label>
+          </div>
+          <div class="text-muted" style="font-size:11px;margin-top:5px;">Teams that play iterative best-response against each other</div>
+        </div>
       </div>
 
+      <!-- Time Limit -->
       <div class="param-row">
-        <label>Solver</label>
-        <input type="text" id="model-solver" value="gurobi"
-               style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;width:120px;font-size:13px;">
-        <span class="text-muted" style="font-size:11px;">gurobi · cplex · highs</span>
+        <label style="display:flex;align-items:center;gap:5px;">
+          Time Limit (s)
+          <span class="info-tip" tabindex="0" data-tip="Setting a time limit allows the solver to stop before finding the proven optimal solution. The best feasible lineup found so far will be returned, but it may not be globally optimal.">i</span>
+        </label>
+        <input type="number" id="model-time-limit" placeholder="none" min="1"
+               style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;width:100px;font-size:13px;">
+        <span class="text-muted" style="font-size:11px;">seconds per solve · leave blank for no limit</span>
       </div>
+
+      <!-- Advanced -->
+      <details style="margin-top:10px;">
+        <summary style="font-size:13px;font-weight:600;cursor:pointer;color:#374151;user-select:none;">
+          Advanced options
+        </summary>
+        <div style="margin-top:10px;padding-left:4px;display:flex;flex-direction:column;gap:10px;">
+          <div class="param-row">
+            <label>Solver</label>
+            <input type="text" id="model-solver" value="gurobi"
+                   style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;width:120px;font-size:13px;">
+            <span class="text-muted" style="font-size:11px;">gurobi · cplex · highs</span>
+          </div>
+          <div class="param-row">
+            <label>MIP Gap</label>
+            <input type="number" id="model-mip-gap" value="0" step="0.001" min="0" max="1"
+                   style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;width:100px;font-size:13px;">
+            <span class="text-muted" style="font-size:11px;">Gurobi optimality tolerance (default 0)</span>
+          </div>
+        </div>
+      </details>
 
       <div class="flex-gap mt8" style="margin-top:18px;">
         <button class="btn btn-primary" id="btn-run-model" onclick="runModel()">▶ Run Optimization</button>
@@ -666,23 +714,24 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
   <!-- ─── STEP 4: Lineup ─── -->
   <section id="step4" class="step">
 
+    <!-- Run metadata header -->
     <div class="card" id="lineup-summary-card" style="display:none;">
-      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
         <div>
-          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Home Team</span>
-          <div id="lu-home-team" style="font-size:16px;font-weight:700;margin-top:2px;"></div>
+          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Adversarial Teams</span>
+          <div id="lu-br-teams" style="font-size:14px;font-weight:600;margin-top:2px;"></div>
         </div>
         <div>
-          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Projected Points</span>
-          <div id="lu-objective" style="font-size:22px;font-weight:700;color:#22c55e;margin-top:2px;"></div>
+          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Solver</span>
+          <div id="lu-solver" style="font-size:14px;margin-top:2px;"></div>
         </div>
         <div>
-          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Status</span>
-          <div id="lu-status" style="font-size:14px;margin-top:2px;"></div>
+          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Completed</span>
+          <div id="lu-ran-at" style="font-size:14px;margin-top:2px;"></div>
         </div>
-        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="margin-left:auto;display:flex;gap:8px;">
           <button class="btn btn-secondary btn-sm" onclick="loadLineup()">↻ Refresh</button>
-          <button class="btn btn-secondary btn-sm" id="btn-lineup-csv" onclick="exportLineupCsv()">⬇ Export CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportLineupCsv()">⬇ Export CSV</button>
         </div>
       </div>
     </div>
@@ -691,40 +740,48 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
       <p class="text-muted">No lineup yet — run the model in Step 3 first.</p>
     </div>
 
-    <!-- Scorers (first, as requested) -->
-    <div class="card" id="lineup-scorers-card" style="display:none;">
+    <!-- Scoreboard -->
+    <div class="card" id="lineup-scoreboard-card" style="display:none;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <span class="card-title" style="margin:0;">Activated Roster</span>
-        <span id="lineup-scorers-count" class="text-muted" style="font-size:12px;"></span>
+        <span class="card-title" style="margin:0;">SCIAC Projected Scores</span>
+        <span class="text-muted" style="font-size:11px;">Greedy baseline vs optimized</span>
       </div>
-      <div id="lineup-scorers-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:2px solid #e5e7eb;">
+            <th style="text-align:left;padding:6px 8px;color:#6b7280;font-weight:600;">Team</th>
+            <th style="text-align:right;padding:6px 8px;color:#6b7280;font-weight:600;">Greedy</th>
+            <th style="text-align:right;padding:6px 8px;color:#6b7280;font-weight:600;">Optimized</th>
+            <th style="text-align:right;padding:6px 8px;color:#6b7280;font-weight:600;">Δ</th>
+          </tr>
+        </thead>
+        <tbody id="scoreboard-tbody"></tbody>
+      </table>
     </div>
 
-    <!-- Solo events -->
-    <div class="card" id="lineup-solo-card" style="display:none;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0;">
-        <span class="card-title" style="margin:0;">Individual Events</span>
+    <!-- Team lineup -->
+    <div class="card" id="lineup-roster-card" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <span class="card-title" style="margin:0;">Team Lineup</span>
+        <select id="lineup-team-picker" onchange="renderRoster()"
+                style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;font-size:13px;background:#fafafa;min-width:200px;"></select>
       </div>
-      <div class="tabs" style="margin-top:12px;">
-        <button class="tab-btn active" id="solo-tab-event"   onclick="switchSoloTab('event')">By Event</button>
-        <button class="tab-btn"        id="solo-tab-athlete" onclick="switchSoloTab('athlete')">By Athlete</button>
+      <div class="tabs">
+        <button class="tab-btn active" id="roster-tab-athlete" onclick="switchRosterTab('athlete')">By Athlete</button>
+        <button class="tab-btn"        id="roster-tab-event"   onclick="switchRosterTab('event')">By Event</button>
+      </div>
+      <div id="roster-view-athlete" class="tab-content active" style="margin-top:10px;">
+        <div id="roster-grid-athlete" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+      </div>
+      <div id="roster-view-event" class="tab-content" style="margin-top:10px;">
+        <div id="roster-grid-event" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
       </div>
 
-      <!-- Event-first view -->
-      <div id="solo-view-event" class="tab-content active">
-        <div id="solo-grid-event" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+      <!-- Relay events -->
+      <div id="roster-relay-section" style="display:none;">
+        <div style="margin:18px 0 10px;font-size:13px;font-weight:600;color:#374151;border-top:1px solid #e5e7eb;padding-top:16px;">Relay Events</div>
+        <div id="roster-relay-grid" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
       </div>
-
-      <!-- Athlete-first view -->
-      <div id="solo-view-athlete" class="tab-content">
-        <div id="solo-grid-athlete" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
-      </div>
-    </div>
-
-    <!-- Relay events (freestyle + medley combined) -->
-    <div class="card" id="lineup-relay-card" style="display:none;">
-      <div class="card-title">Relay Events</div>
-      <div id="relay-grid" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
     </div>
 
     <div>
@@ -1405,19 +1462,26 @@ async function runModel() {
   status.textContent = 'Running…';
   status.className   = 'text-muted';
 
-  const homeTeam = document.getElementById('model-home-team').value;
-  const solver   = document.getElementById('model-solver').value.trim() || 'gurobi';
+  const brTeams = Array.from(
+    document.querySelectorAll('#br-teams-checkboxes input[type=checkbox]:checked')
+  ).map(cb => cb.value);
+  const solver       = document.getElementById('model-solver').value.trim() || 'gurobi';
+  const timeLimitRaw = document.getElementById('model-time-limit').value.trim();
+  const timeLimit    = timeLimitRaw ? parseInt(timeLimitRaw, 10) : null;
+  const mipGap = parseFloat(document.getElementById('model-mip-gap').value) || 0;
 
-  appendModelLog(`--- Starting model: ${homeTeam} (${currentGender}, ${currentSeason}) ---`);
+  appendModelLog(`--- Starting model: ${brTeams.join(' vs ')} (${currentGender}, ${currentSeason}) ---`);
 
   const resp = await fetch('/api/model/run', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      season:    currentSeason,
-      gender:    currentGender,
-      home_team: homeTeam,
-      solver:    solver,
+      season:         currentSeason,
+      gender:         currentGender,
+      solver:         solver,
+      time_limit:     timeLimit,
+      mip_gap:  mipGap,
+      br_teams: brTeams,
     }),
   });
 
@@ -1459,185 +1523,162 @@ async function runModel() {
 // ============================================================
 // Step 4 — Lineup
 // ============================================================
+let _lineupData = null;
+
 async function loadLineup() {
   const showCard = id => document.getElementById(id).style.display = '';
   const hideCard = id => document.getElementById(id).style.display = 'none';
 
   hideCard('lineup-summary-card');
-  hideCard('lineup-solo-card');
-  hideCard('lineup-relay-card');
-  hideCard('lineup-scorers-card');
+  hideCard('lineup-scoreboard-card');
+  hideCard('lineup-roster-card');
   hideCard('lineup-empty');
 
   const resp = await fetch(
     `/api/lineup?season=${encodeURIComponent(currentSeason)}&gender=${encodeURIComponent(currentGender)}`
   );
-  if (!resp.ok) {
-    showCard('lineup-empty');
-    return;
-  }
-  const data = await resp.json();
+  if (!resp.ok) { showCard('lineup-empty'); return; }
 
-  // Summary
-  document.getElementById('lu-home-team').textContent = data.home_team || '';
-  document.getElementById('lu-objective').textContent =
-    data.objective != null ? data.objective + ' pts' : '—';
-  const statusEl = document.getElementById('lu-status');
-  statusEl.textContent = data.status || '';
-  statusEl.className = data.status === 'solved' ? 'text-success' : 'text-error';
+  const data = await resp.json();
+  _lineupData = data;
+
+  // Summary header
+  document.getElementById('lu-br-teams').textContent = (data.meta?.br_teams || []).join(' ↔ ') || '—';
+  document.getElementById('lu-solver').textContent   = data.meta?.solver || '—';
+  document.getElementById('lu-ran-at').textContent   = data.meta?.ran_at || '—';
   showCard('lineup-summary-card');
 
-  // Solo grid — build both views
-  if (data.solo && data.solo.length > 0) {
-    // Event-first: one box per event, athletes inside sorted by place
-    const eventMap = {};
-    for (const r of data.solo) {
-      if (!eventMap[r.event]) eventMap[r.event] = [];
-      eventMap[r.event].push(r);
-    }
-    const eventKeys = Object.keys(eventMap).sort();
-    document.getElementById('solo-grid-event').innerHTML = eventKeys.map(evt => {
-      const rows = eventMap[evt].sort((a,b) => (a.place||99)-(b.place||99));
-      const rowsHtml = rows.map(r => `
-        <div class="solo-box-row">
-          <span>${esc(r.athlete)}</span>
-          <span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
-            ${r.time ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;">${esc(r.time)}</span>` : ''}
-            <span class="solo-box-place place-${r.place}">${r.place != null ? placeOrdinal(r.place) : '—'}</span>
-          </span>
-        </div>`).join('');
-      return `<div class="solo-box"><div class="solo-box-title">${esc(evt)}</div>${rowsHtml}</div>`;
+  // Scoreboard
+  const sb = data.scoreboard || [];
+  if (sb.length > 0) {
+    document.getElementById('scoreboard-tbody').innerHTML = sb.map(row => {
+      const deltaStr  = row.delta > 0 ? `+${row.delta}` : String(row.delta);
+      const deltaColor = row.delta > 0 ? '#22c55e' : row.delta < 0 ? '#ef4444' : '#6b7280';
+      const boldStyle  = row.is_br_team ? 'font-weight:700;' : '';
+      return `<tr style="border-bottom:1px solid #f3f4f6;${boldStyle}">
+        <td style="padding:6px 8px;">${esc(row.team)}${row.is_br_team ? ' <span style="font-size:10px;color:#4f8ef7;font-weight:600;">★</span>' : ''}</td>
+        <td style="text-align:right;padding:6px 8px;font-variant-numeric:tabular-nums;">${row.greedy}</td>
+        <td style="text-align:right;padding:6px 8px;font-variant-numeric:tabular-nums;font-weight:600;">${row.optimized}</td>
+        <td style="text-align:right;padding:6px 8px;font-variant-numeric:tabular-nums;color:${deltaColor};">${deltaStr}</td>
+      </tr>`;
     }).join('');
-
-    // Athlete-first: one box per athlete, events inside sorted by place
-    const athleteMap = {};
-    for (const r of data.solo) {
-      if (!athleteMap[r.athlete]) athleteMap[r.athlete] = [];
-      athleteMap[r.athlete].push(r);
-    }
-    const athleteKeys = Object.keys(athleteMap).sort();
-    document.getElementById('solo-grid-athlete').innerHTML = athleteKeys.map(ath => {
-      const rows = athleteMap[ath].sort((a,b) => (a.place||99)-(b.place||99));
-      const rowsHtml = rows.map(r => `
-        <div class="solo-box-row">
-          <span>${esc(r.event)}</span>
-          <span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
-            ${r.time ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;">${esc(r.time)}</span>` : ''}
-            <span class="solo-box-place place-${r.place}">${r.place != null ? placeOrdinal(r.place) : '—'}</span>
-          </span>
-        </div>`).join('');
-      return `<div class="solo-box"><div class="solo-box-title">${esc(ath)}</div>${rowsHtml}</div>`;
-    }).join('');
-
-    showCard('lineup-solo-card');
+    showCard('lineup-scoreboard-card');
   }
 
-  // Relay grid — freestyle and medley combined, one box per event, A/B columns
-  const allRelays = [...(data.relay||[]), ...(data.medley||[])];
-  if (allRelays.length > 0) {
-    // Group by event name, collect A and B heat entries
-    const relayMap = {};
-    for (const r of allRelays) {
-      if (!relayMap[r.event]) relayMap[r.event] = {};
-      relayMap[r.event][r.level] = r;
-    }
-    // Canonical event order: freestyle first, then medley
-    const RELAY_ORDER = [
-      '200 Free Relay (4×50)', '400 Free Relay (4×100)', '800 Free Relay (4×200)',
-      '200 Medley Relay', '400 Medley Relay',
-    ];
-    const relayKeys = RELAY_ORDER.filter(e => relayMap[e])
-      .concat(Object.keys(relayMap).filter(e => !RELAY_ORDER.includes(e)).sort());
-
-    document.getElementById('relay-grid').innerHTML = relayKeys.map(evt => {
-      const heats = relayMap[evt];
-      const isMedley = evt.includes('Medley');
-      const STROKES = ['Back', 'Breast', 'Fly', 'Free'];
-
-      const heatHtml = ['A', 'B'].map(level => {
-        const h = heats[level];
-        if (!h) return `<div class="relay-heat" style="opacity:.35;">
-          <div class="relay-heat-header">
-            <span class="relay-heat-label">${level} Final</span>
-          </div>
-          <div style="font-size:11px;color:#9ca3af;">Not entered</div>
-        </div>`;
-
-        const placeHtml = h.place != null
-          ? `<span class="solo-box-place place-${h.place}">${placeOrdinal(h.place)}</span>`
-          : '';
-
-        const legTimes = h.leg_times || {};
-
-        let athletesHtml;
-        if (isMedley) {
-          const aths = h.athletes || {};
-          athletesHtml = STROKES.map(s => {
-            const ath = aths[s] || '—';
-            const t = legTimes[s] || '';
-            return `<div class="relay-athlete-row">
-              <span class="relay-stroke-label">${s}</span>
-              <span style="flex:1;">${esc(ath)}</span>
-              ${t ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(t)}</span>` : ''}
-            </div>`;
-          }).join('');
-        } else {
-          athletesHtml = (h.athletes || []).map(a => {
-            const t = legTimes[a] || '';
-            return `<div class="relay-athlete-row">
-              <span style="flex:1;">${esc(a)}</span>
-              ${t ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(t)}</span>` : ''}
-            </div>`;
-          }).join('');
-        }
-
-        const totalHtml = h.total_time
-          ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:11px;">
-               <span style="color:#6b7280;font-weight:600;">Total</span>
-               <span style="font-family:monospace;font-weight:700;color:#374151;">${esc(h.total_time)}</span>
-             </div>`
-          : '';
-
-        return `<div class="relay-heat">
-          <div class="relay-heat-header">
-            <span class="relay-heat-label">${level} Final</span>
-            ${placeHtml}
-          </div>
-          ${athletesHtml}
-          ${totalHtml}
-        </div>`;
-      }).join('');
-
-      return `<div class="relay-box">
-        <div class="relay-box-title">${esc(evt)}</div>
-        <div class="relay-heats">${heatHtml}</div>
-      </div>`;
-    }).join('');
-
-    showCard('lineup-relay-card');
-  }
-
-  // Scorers (shown first — rendered before solo/relay/medley)
-  if (data.scorers && data.scorers.length > 0) {
-    const el = document.getElementById('lineup-scorers-list');
-    const countEl = document.getElementById('lineup-scorers-count');
-    countEl.textContent = `${data.scorers.length} athletes`;
-    el.innerHTML = data.scorers.map(s =>
-      `<span style="background:#f0f2f5;border:1px solid #e5e7eb;border-radius:4px;padding:3px 10px;font-size:12px;">${esc(s)}</span>`
+  // Team picker
+  const rosters = data.rosters || {};
+  const rosterTeams = Object.keys(rosters).sort();
+  if (rosterTeams.length > 0) {
+    const picker = document.getElementById('lineup-team-picker');
+    picker.innerHTML = rosterTeams.map(t =>
+      `<option value="${esc(t)}">${esc(t)}</option>`
     ).join('');
-    showCard('lineup-scorers-card');
+    showCard('lineup-roster-card');
+    renderRoster();
   }
 
-  if (!data.solo?.length && !allRelays.length) {
-    showCard('lineup-empty');
-  }
+  if (sb.length === 0 && rosterTeams.length === 0) showCard('lineup-empty');
 }
 
-function switchSoloTab(view) {
-  document.getElementById('solo-tab-event').classList.toggle('active', view === 'event');
-  document.getElementById('solo-tab-athlete').classList.toggle('active', view === 'athlete');
-  document.getElementById('solo-view-event').classList.toggle('active', view === 'event');
-  document.getElementById('solo-view-athlete').classList.toggle('active', view === 'athlete');
+function renderRoster() {
+  if (!_lineupData) return;
+  const team     = document.getElementById('lineup-team-picker').value;
+  const teamData = (_lineupData.rosters || {})[team] || {};
+  const athletes = teamData.athletes || [];
+  const relays   = teamData.relays   || [];
+
+  // By-athlete view: one box per athlete, events + times listed
+  document.getElementById('roster-grid-athlete').innerHTML = athletes.map(ath => {
+    const badge = ath.type === 'diver'
+      ? '<span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 5px;margin-left:6px;">diver</span>'
+      : '';
+    const evtsHtml = ath.events.map(e =>
+      `<div class="relay-athlete-row" style="padding:2px 0;">
+        <span style="flex:1;font-size:12px;color:#374151;">${esc(e.event)}</span>
+        ${e.time ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(e.time)}</span>` : ''}
+      </div>`
+    ).join('') || '<div style="font-size:12px;color:#9ca3af;">no solo events</div>';
+    return `<div class="solo-box">
+      <div class="solo-box-title">${esc(ath.name)}${badge}</div>
+      ${evtsHtml}
+    </div>`;
+  }).join('') || '<div class="text-muted" style="font-size:13px;">No roster data for this team.</div>';
+
+  // By-event view: one box per event, athletes + times listed
+  const eventMap = {};
+  for (const ath of athletes) {
+    for (const e of ath.events) {
+      if (!eventMap[e.event]) eventMap[e.event] = [];
+      eventMap[e.event].push({name: ath.name, time: e.time});
+    }
+  }
+  document.getElementById('roster-grid-event').innerHTML = Object.keys(eventMap).sort().map(evt => {
+    const rows = eventMap[evt].map(e =>
+      `<div class="relay-athlete-row" style="padding:2px 0;">
+        <span style="flex:1;font-size:12px;color:#374151;">${esc(e.name)}</span>
+        ${e.time ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(e.time)}</span>` : ''}
+      </div>`
+    ).join('');
+    return `<div class="solo-box"><div class="solo-box-title">${esc(evt)}</div>${rows}</div>`;
+  }).join('') || '<div class="text-muted" style="font-size:13px;">No individual events for this team.</div>';
+
+  // Relay section
+  const relaySection = document.getElementById('roster-relay-section');
+  if (relays.length === 0) {
+    relaySection.style.display = 'none';
+    return;
+  }
+  relaySection.style.display = '';
+  const STROKES = ['Back', 'Breast', 'Fly', 'Free'];
+  document.getElementById('roster-relay-grid').innerHTML = relays.map(r => {
+    const heatHtml = ['A', 'B'].map(level => {
+      const h = r[level];
+      if (!h) return `<div class="relay-heat" style="opacity:.35;">
+        <div class="relay-heat-header"><span class="relay-heat-label">${level} Heat</span></div>
+        <div style="font-size:11px;color:#9ca3af;">Not entered</div>
+      </div>`;
+      const legTimes = h.leg_times || {};
+      let legsHtml;
+      if (r.is_medley) {
+        legsHtml = (h.legs || []).map(leg => {
+          const t = legTimes[leg.name] || '';
+          return `<div class="relay-athlete-row">
+            <span class="relay-stroke-label">${esc(leg.stroke || '')}</span>
+            <span style="flex:1;">${esc(leg.name)}</span>
+            ${t ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(t)}</span>` : ''}
+          </div>`;
+        }).join('');
+      } else {
+        legsHtml = (h.legs || []).map(leg => {
+          const t = legTimes[leg.name] || '';
+          return `<div class="relay-athlete-row">
+            <span style="flex:1;">${esc(leg.name)}</span>
+            ${t ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(t)}</span>` : ''}
+          </div>`;
+        }).join('');
+      }
+      const totalHtml = h.total_time
+        ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:11px;">
+             <span style="color:#6b7280;font-weight:600;">Projected</span>
+             <span style="font-family:monospace;font-weight:700;color:#374151;">${esc(h.total_time)}</span>
+           </div>` : '';
+      return `<div class="relay-heat">
+        <div class="relay-heat-header"><span class="relay-heat-label">${level} Heat</span></div>
+        ${legsHtml}${totalHtml}
+      </div>`;
+    }).join('');
+    return `<div class="relay-box">
+      <div class="relay-box-title">${esc(r.event)}</div>
+      <div class="relay-heats">${heatHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+function switchRosterTab(view) {
+  document.getElementById('roster-tab-athlete').classList.toggle('active', view === 'athlete');
+  document.getElementById('roster-tab-event').classList.toggle('active', view === 'event');
+  document.getElementById('roster-view-athlete').classList.toggle('active', view === 'athlete');
+  document.getElementById('roster-view-event').classList.toggle('active', view === 'event');
 }
 
 function placeOrdinal(n) {
