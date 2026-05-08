@@ -346,4 +346,4 @@ Specifcially, this will output the correct format for *roster* and *relay_data* 
 
 The structure of this function is ideal for iterative best response because we can change the *home_team* and feed the output back into `optimize_team` as a new warm start.
 
-Finally, to understand the remainder of the Iterative Best Response algorithm (along with key assumptions of the model), we direct the reader to the following overleaf: 
+Finally, to understand the remainder of the Iterative Best Response algorithm (along with key assumptions of the model), we direct the reader to the Swimplex Overleaf (specifically SP26 Research/Model.tex)
