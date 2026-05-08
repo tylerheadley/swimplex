@@ -595,8 +595,9 @@ def greedy_relay_assignment(
 
             for heat, pool in pools.items():
                 if len(pool) < 4:
-                    relay_assignments[team][relay_id][heat] = None
-                    continue
+                    for heat in ["A", "B"]:
+                        relay_assignments[team][relay_id][heat] = None
+                    break
 
                 # Leadoff: smallest leadoff_gap (benefits least from exchange start)
                 leadoff_idx = min(range(len(pool)), key=lambda i: pool[i]["leadoff_gap"])
@@ -691,8 +692,16 @@ def greedy_relay_assignment(
                     if heat == "A":
                         used_in_a = {leg["name"] for leg in legs}
                 else:
-                    relay_assignments[team][relay_id][heat] = None
+                    # Not a valid entry for this relay event so set A and B to 
+                    for heat in ["A", "B"]:
+                        relay_assignments[team][relay_id][heat] = None
+                    break
 
+    for team, obj in relay_assignments.items():
+        if team == "Claremont-Mudd-Scripps":
+            for event, obj2 in obj.items():
+                if "MED" in event:
+                    print(obj2)
     return relay_assignments
 
 

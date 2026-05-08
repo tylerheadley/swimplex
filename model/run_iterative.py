@@ -396,6 +396,9 @@ def optimize_team(
         ampl.set_option("gurobi_options", opts)
 
     ampl.solve()
+    ampl.eval("display placement_solo;")
+    ampl.eval("display placement;")
+    ampl.eval("display placement_med;")
     solve_result = str(ampl.get_value("solve_result"))
     runtime_s = time.perf_counter() - t_start
     ram_after = _rss_mb()
@@ -413,6 +416,15 @@ def optimize_team(
 
     if "infeasible" in solve_result:
         print("  *** INFEASIBLE — skipping ***")
+        print(home_team)
+        for name, constraint in ampl.get_constraints():
+        # The .iis suffix will be non-zero (usually "members") if it's part of the conflict
+            iis_values = constraint.get_values("iis").to_dict()
+
+            for index, status in iis_values.items():
+                if status != 'non':
+                    print(f"Constraint Team_Scorer_Cap[{index}] is in the IIS (Status: {status})")
+        sys.exit(0)
         return None, None, None, solve_record
 
     obj_val = ampl.get_value("TotalPoints")
@@ -675,6 +687,8 @@ def main() -> None:
         }, f, indent=2)
     print(f"\n  Greedy results saved to {greedy_out}")
 
+    #sys.exit(0)
+
     # Mutable copies: updated as teams get optimised
     all_rosters = {t: rosters.get(t, {"athletes": {}}) for t in SCIAC_TEAMS}
     all_relays  = {t: relay_assignments.get(t, {})      for t in SCIAC_TEAMS}
@@ -782,6 +796,7 @@ def main() -> None:
                           f" {abs(obj - prev):.1f})")
                     print_roster(home_team, opt_r, opt_rl)
                     record_phase(phase_key, home_team, obj)
+                
 
     # ── Final summary ────────────────────────────────────────────────────────
     print("\n" + "="*60)
@@ -841,6 +856,10 @@ def main() -> None:
             }
             for team, roster in optimized_rosters.items()
         },
+        "optimized_relays": {
+            team: relay_obj
+            for team, relay_obj in optimized_relays.items()
+        },
     }
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
@@ -852,6 +871,10 @@ def main() -> None:
         plot_path = str(DATA_DIR / args.season / f"score_history_{gender_lower}.png")
         plot_score_history(score_history, phase_labels, plot_path)
 
+
+    ampl.eval("display placement_solo;")
+    ampl.eval("display placement;")
+    ampl.eval("display placement_med;")
 
 if __name__ == "__main__":
     main()
