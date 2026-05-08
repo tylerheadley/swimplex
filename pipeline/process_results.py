@@ -52,6 +52,7 @@ import json
 import re
 import sys
 from collections import defaultdict
+from datetime import date as _date
 from pathlib import Path
 
 try:
@@ -69,6 +70,7 @@ DATA_DIR = _PROJECT_ROOT / "data"
 # ---------------------------------------------------------------------------
 
 _MMSS_RE           = re.compile(r"^(\d+):(\d+(?:\.\d+)?)$")
+_MEET_DATE_RE      = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
 _INVALID_PERF      = {"DQ", "NT", "NP", "NS", "SCR", "---", "DNF", "DFS"}
 _TRAILING_SYMS_RE  = re.compile(r"[@#$%!]+$")
 
@@ -85,6 +87,34 @@ _TRAILING_INIT_RE  = re.compile(r"\s+[A-Za-z]$")
 _LEADING_PREFIX_RE = re.compile(r"^[A-Z]\.\s*")
 _YEAR_VALUES       = {"FR", "SO", "JR", "SR"}
 _VALID_AGE_RE      = re.compile(r"^\d{1,2}$")
+
+# ---------------------------------------------------------------------------
+# Meet-date helpers
+# ---------------------------------------------------------------------------
+
+def _meet_start_date(meet_date_str: str) -> _date | None:
+    """
+    Extract the start date from a meet_date string.
+    Handles single dates ("10/10/2025") and ranges ("2/18/2026 to 2/21/2026").
+    Returns a date object, or None if the string cannot be parsed.
+    """
+    m = _MEET_DATE_RE.search(meet_date_str)
+    if not m:
+        return None
+    month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        return _date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _parse_date_arg(val: str) -> _date:
+    """Parse a CLI date argument in YYYY-MM-DD format."""
+    try:
+        return _date.fromisoformat(val)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Date must be YYYY-MM-DD, got: {val!r}")
+
 
 # ---------------------------------------------------------------------------
 # Name normalisation
@@ -156,6 +186,10 @@ def _build_name_aliases(norm_names: list[str]) -> dict[str, str]:
     2. Last-name-only merging: map bare "LastName" → "LastName, FirstName" when
        exactly one full form exists for that last name (handles truncated names
        from PDFs that drop the first name).
+    3. Inverted-name merging: if "A, B" and "B, A" both appear (a PDF printed
+       the name in First-Last order but the raw string already had a comma, so
+       step-1 inversion was skipped), merge them by picking the more frequent
+       form as canonical (e.g. "AJ, Ceja" → "Ceja, Aj").
     """
     # 1. Case-variant: group by lowercase, tally occurrences
     case_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -184,6 +218,47 @@ def _build_name_aliases(norm_names: list[str]) -> dict[str, str]:
                 full_forms = last_to_full.get(cn, [])
                 if len(full_forms) == 1:
                     alias[n] = full_forms[0]
+
+    # 3. Inverted-name merging
+    # Recompute resolved canonicals after steps 1+2, then count occurrences.
+    resolved2: dict[str, str] = {n: alias.get(n, n) for n in set(norm_names)}
+    canon_counts: dict[str, int] = defaultdict(int)
+    for n in norm_names:
+        canon_counts[resolved2[n]] += 1
+
+    lower_to_canon: dict[str, str] = {}
+    for cn in set(resolved2.values()):
+        lower_to_canon[cn.lower()] = cn
+
+    processed: set[frozenset] = set()
+    for cn in sorted(set(resolved2.values())):
+        if "," not in cn:
+            continue
+        last, first = cn.split(",", 1)
+        last, first = last.strip(), first.strip()
+        if not last or not first:
+            continue
+        inv_lower = f"{first.lower()}, {last.lower()}"
+        inv_cn = lower_to_canon.get(inv_lower)
+        if inv_cn is None or inv_cn == cn:
+            continue
+        pair: frozenset = frozenset([cn, inv_cn])
+        if pair in processed:
+            continue
+        processed.add(pair)
+        # Map the less-frequent form → the more-frequent form
+        if canon_counts[cn] >= canon_counts[inv_cn]:
+            dominant, minor = cn, inv_cn
+        else:
+            dominant, minor = inv_cn, cn
+        print(
+            f"NOTE: inverted-name pair merged: {minor!r} → {dominant!r} "
+            f"(counts {canon_counts[minor]} vs {canon_counts[dominant]})",
+            file=sys.stderr,
+        )
+        for n in set(norm_names):
+            if resolved2.get(n) == minor:
+                alias[n] = dominant
 
     return alias
 
@@ -604,6 +679,14 @@ def main() -> None:
         help="Additional seasons whose diving data is pooled when fitting the GMM "
              "(improves classification stability). Files that don't exist are skipped.",
     )
+    ap.add_argument(
+        "--date-from", metavar="YYYY-MM-DD", type=_parse_date_arg, default=None,
+        help="Only include meets whose start date is on or after this date.",
+    )
+    ap.add_argument(
+        "--date-to", metavar="YYYY-MM-DD", type=_parse_date_arg, default=None,
+        help="Only include meets whose start date is on or before this date.",
+    )
     args = ap.parse_args()
 
     results_path = DATA_DIR / args.season / "results.json"
@@ -614,6 +697,25 @@ def main() -> None:
         )
 
     rows: list[dict] = json.loads(results_path.read_text())
+
+    # ── Date range filter ─────────────────────────────────────────────────────
+    if args.date_from or args.date_to:
+        before = len(rows)
+        def _in_range(r: dict) -> bool:
+            d = _meet_start_date(r.get("meet_date", ""))
+            if d is None:
+                return True  # keep rows whose date can't be parsed
+            if args.date_from and d < args.date_from:
+                return False
+            if args.date_to and d > args.date_to:
+                return False
+            return True
+        rows = [r for r in rows if _in_range(r)]
+        print(
+            f"Date filter [{args.date_from or '…'} → {args.date_to or '…'}]: "
+            f"kept {len(rows)} / {before} rows",
+            file=sys.stderr,
+        )
 
     # Load auxiliary seasons for GMM fitting (silently skip missing files)
     aux_rows: list[list[dict]] = []

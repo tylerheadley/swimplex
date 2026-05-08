@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SCIAC Lineup Tool</title>
+<title>Swimplex</title>
 <style>
 /* ── Reset + base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -265,6 +265,105 @@ tbody tr.manual-row { background: #eff6ff; }
 .add-form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 3px; }
 .add-form-grid input, .add-form-grid select { width: 100%; border: 1px solid #d1d5db; border-radius: 6px; padding: 5px 8px; font-size: 13px; background: #fff; }
 
+/* ── Solo grid boxes ── */
+.solo-box {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 180px;
+  flex: 1 1 180px;
+  max-width: 260px;
+  background: #fafafa;
+}
+.solo-box-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 6px;
+}
+.solo-box-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: #374151;
+  border-bottom: 1px solid #f3f4f6;
+}
+.solo-box-row:last-child { border-bottom: none; }
+.solo-box-place {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #4f8ef7;
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+.solo-box-place.place-1 { background: #f59e0b; }
+.solo-box-place.place-2 { background: #9ca3af; }
+.solo-box-place.place-3 { background: #b45309; }
+
+/* ── Relay grid boxes ── */
+.relay-box {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px 12px;
+  flex: 1 1 280px;
+  max-width: 420px;
+  background: #fafafa;
+}
+.relay-box-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.relay-heats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.relay-heat {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 7px 10px;
+}
+.relay-heat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.relay-heat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.relay-athlete-row {
+  font-size: 12px;
+  color: #374151;
+  padding: 2px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.relay-stroke-label {
+  font-size: 10px;
+  color: #9ca3af;
+  font-weight: 600;
+  flex-shrink: 0;
+  width: 38px;
+}
+
 /* ── Model step ── */
 .placeholder-banner {
   background: #fef3c7;
@@ -319,7 +418,7 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
      ║  HEADER                                                      ║
      ╚══════════════════════════════════════════════════════════════╝ -->
 <div id="header">
-  <h1>🏊 SCIAC Lineup Tool</h1>
+  <h1>Swimplex</h1>
   <div class="spacer"></div>
 
   <div class="gender-toggle">
@@ -365,10 +464,19 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
           </button>
           <span id="scrape-status-hint" class="text-muted" style="font-size:11px;"></span>
         </div>
-        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;">
           <button class="btn btn-success" id="btn-parse" onclick="doParse()">
             ⚙ Parse &amp; Process
           </button>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <span style="font-size:12px;color:#555;">Data cutoff:</span>
+            <input type="date" id="parse-date-from" title="Only include meets on or after this date (optional)"
+                   style="font-size:12px;padding:2px 5px;">
+            <span style="font-size:12px;color:#555;">to</span>
+            <input type="date" id="parse-date-to" title="Only include meets on or before this date (optional)"
+                   style="font-size:12px;padding:2px 5px;">
+            <span style="font-size:11px;color:#999;">optional — leave blank to use all data</span>
+          </div>
           <span id="parse-status-hint" class="text-muted" style="font-size:11px;"></span>
         </div>
         <span id="parse-status" class="text-muted"></span>
@@ -446,7 +554,7 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
                 <optgroup label="Individual">
                   <option>50 Yard Freestyle</option><option>100 Yard Freestyle</option>
                   <option>200 Yard Freestyle</option><option>500 Yard Freestyle</option>
-                  <option>1000 Yard Freestyle</option><option>1650 Yard Freestyle</option>
+                  <option>1650 Yard Freestyle</option>
                   <option>100 Yard Butterfly</option><option>200 Yard Butterfly</option>
                   <option>50 Yard Backstroke</option><option>100 Yard Backstroke</option><option>200 Yard Backstroke</option>
                   <option>100 Yard Breaststroke</option><option>200 Yard Breaststroke</option>
@@ -508,97 +616,115 @@ details > summary { cursor: pointer; font-size: 13px; color: #4f8ef7; margin-bot
 
   <!-- ─── STEP 3: Model ─── -->
   <section id="step3" class="step">
-    <div class="placeholder-banner">
-      <span class="icon">🔧</span>
-      <span><strong>Model not yet configured</strong> — drop in amplpy integration here (app.py <code>/api/model/run</code>)</span>
-    </div>
-
     <div class="card">
       <div class="card-title">Model Parameters</div>
 
       <div class="param-row">
-        <label>Fatigue penalty</label>
-        <input type="range" id="fatigue-slider" min="0" max="2" step="0.05" value="0.5"
-               oninput="document.getElementById('fatigue-val').textContent=this.value">
-        <span class="param-val" id="fatigue-val">0.5</span>
-        <input type="number" id="fatigue-num" min="0" max="2" step="0.05" value="0.5"
-               oninput="document.getElementById('fatigue-slider').value=this.value;document.getElementById('fatigue-val').textContent=this.value">
+        <label>Home team</label>
+        <select id="model-home-team" style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;font-size:13px;background:#fafafa;min-width:200px;">
+          <option>Claremont-Mudd-Scripps</option>
+          <option>Cal Lutheran</option>
+          <option>Caltech</option>
+          <option>Chapman</option>
+          <option>Occidental</option>
+          <option>Pomona-Pitzer</option>
+          <option>La Verne</option>
+          <option>Redlands</option>
+          <option>Whittier</option>
+        </select>
       </div>
 
       <div class="param-row">
-        <label>Max events per athlete</label>
-        <input type="number" id="max-events" min="1" max="6" step="1" value="3" style="width:80px;">
+        <label>Solver</label>
+        <input type="text" id="model-solver" value="gurobi"
+               style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;width:120px;font-size:13px;">
+        <span class="text-muted" style="font-size:11px;">gurobi · cplex · highs</span>
       </div>
 
-      <details>
-        <summary>Additional parameters</summary>
-        <div class="param-row" style="margin-top:10px;">
-          <label>Scoring system</label>
-          <select style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;font-size:13px;background:#fafafa;">
-            <option>NCAA D3 (standard)</option>
-            <option>Custom</option>
-          </select>
-        </div>
-        <div class="param-row">
-          <label>Min relay coverage</label>
-          <input type="number" id="min-relay" min="0" max="10" step="1" value="4" style="width:80px;">
-        </div>
-        <div class="param-row">
-          <label>Enforce dive entry</label>
-          <select style="border:1px solid #d1d5db;border-radius:6px;padding:5px 10px;font-size:13px;background:#fafafa;">
-            <option>Yes</option>
-            <option>No</option>
-          </select>
-        </div>
-      </details>
-
       <div class="flex-gap mt8" style="margin-top:18px;">
-        <button class="btn btn-primary" id="btn-run-model" onclick="runModel()">▶ Run Model</button>
+        <button class="btn btn-primary" id="btn-run-model" onclick="runModel()">▶ Run Optimization</button>
         <span id="model-status" class="text-muted"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span class="card-title" style="margin:0">Model Log</span>
+        <button class="btn btn-secondary btn-sm" onclick="clearModelLog()">Clear</button>
+      </div>
+      <div id="model-log-panel" style="background:#0f1117;color:#a8f0b8;border-radius:8px;padding:12px 16px;font-family:'SF Mono','Fira Mono',monospace;font-size:12px;line-height:1.6;min-height:140px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">
+        Waiting for model run…
       </div>
     </div>
 
     <div style="display:flex;justify-content:space-between;">
       <button class="btn btn-secondary" onclick="goStep(2)">← Back</button>
-      <button class="btn btn-primary"   onclick="goStep(4)">Continue → Lineup</button>
+      <button class="btn btn-primary" id="btn-continue3" onclick="goStep(4)">Continue → Lineup</button>
     </div>
   </section>
 
   <!-- ─── STEP 4: Lineup ─── -->
   <section id="step4" class="step">
-    <div class="placeholder-banner">
-      <span class="icon">📋</span>
-      <span><strong>Lineup output will appear here after model is integrated</strong></span>
+
+    <div class="card" id="lineup-summary-card" style="display:none;">
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+        <div>
+          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Home Team</span>
+          <div id="lu-home-team" style="font-size:16px;font-weight:700;margin-top:2px;"></div>
+        </div>
+        <div>
+          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Projected Points</span>
+          <div id="lu-objective" style="font-size:22px;font-weight:700;color:#22c55e;margin-top:2px;"></div>
+        </div>
+        <div>
+          <span class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Status</span>
+          <div id="lu-status" style="font-size:14px;margin-top:2px;"></div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="loadLineup()">↻ Refresh</button>
+          <button class="btn btn-secondary btn-sm" id="btn-lineup-csv" onclick="exportLineupCsv()">⬇ Export CSV</button>
+        </div>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Proposed Lineup</div>
-      <div class="export-row">
-        <button class="btn btn-secondary btn-sm" disabled>⬇ Export CSV</button>
-        <button class="btn btn-secondary btn-sm" disabled>⬇ Export PDF</button>
-        <span class="text-muted">Exports available after model run</span>
+    <div id="lineup-empty" class="card" style="text-align:center;padding:32px;">
+      <p class="text-muted">No lineup yet — run the model in Step 3 first.</p>
+    </div>
+
+    <!-- Scorers (first, as requested) -->
+    <div class="card" id="lineup-scorers-card" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span class="card-title" style="margin:0;">Activated Roster</span>
+        <span id="lineup-scorers-count" class="text-muted" style="font-size:12px;"></span>
       </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Athlete</th>
-              <th>School</th>
-              <th>Seed Time</th>
-              <th>Slot</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Skeleton rows -->
-            <tr class="skeleton-row"><td><div class="skel" style="width:160px"></div></td><td><div class="skel" style="width:120px"></div></td><td><div class="skel" style="width:100px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
-            <tr class="skeleton-row"><td><div class="skel" style="width:140px"></div></td><td><div class="skel" style="width:110px"></div></td><td><div class="skel" style="width:80px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
-            <tr class="skeleton-row"><td><div class="skel" style="width:180px"></div></td><td><div class="skel" style="width:130px"></div></td><td><div class="skel" style="width:90px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
-            <tr class="skeleton-row"><td><div class="skel" style="width:150px"></div></td><td><div class="skel" style="width:100px"></div></td><td><div class="skel" style="width:110px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
-            <tr class="skeleton-row"><td><div class="skel" style="width:165px"></div></td><td><div class="skel" style="width:125px"></div></td><td><div class="skel" style="width:95px"></div></td><td><div class="skel" style="width:60px"></div></td><td><div class="skel" style="width:40px"></div></td></tr>
-          </tbody>
-        </table>
+      <div id="lineup-scorers-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
+
+    <!-- Solo events -->
+    <div class="card" id="lineup-solo-card" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0;">
+        <span class="card-title" style="margin:0;">Individual Events</span>
       </div>
+      <div class="tabs" style="margin-top:12px;">
+        <button class="tab-btn active" id="solo-tab-event"   onclick="switchSoloTab('event')">By Event</button>
+        <button class="tab-btn"        id="solo-tab-athlete" onclick="switchSoloTab('athlete')">By Athlete</button>
+      </div>
+
+      <!-- Event-first view -->
+      <div id="solo-view-event" class="tab-content active">
+        <div id="solo-grid-event" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+      </div>
+
+      <!-- Athlete-first view -->
+      <div id="solo-view-athlete" class="tab-content">
+        <div id="solo-grid-athlete" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+      </div>
+    </div>
+
+    <!-- Relay events (freestyle + medley combined) -->
+    <div class="card" id="lineup-relay-card" style="display:none;">
+      <div class="card-title">Relay Events</div>
+      <div id="relay-grid" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
     </div>
 
     <div>
@@ -631,6 +757,9 @@ function goStep(n) {
     if (!document.getElementById('quality-issues').querySelector('.issue-group')) {
       loadQuality();
     }
+  }
+  if (n === 4) {
+    loadLineup();
   }
 }
 
@@ -698,6 +827,21 @@ async function checkDataStatus() {
     parseHint.className = 'text-muted';
   }
   parseHint.style.fontSize = '11px';
+
+  // Model results hint (Step 3 status)
+  const mr = status.model_results;
+  if (mr) {
+    const mrParts = [];
+    if (mr.men   && mr.men.exists)   mrParts.push(`Men (${mr.men.last_updated})`);
+    if (mr.women && mr.women.exists) mrParts.push(`Women (${mr.women.last_updated})`);
+    const modelStatusEl = document.getElementById('model-status');
+    if (modelStatusEl && mrParts.length) {
+      if (!modelStatusEl.textContent || modelStatusEl.textContent === 'Running…') return;
+      modelStatusEl.textContent = `✓ Last run: ${mrParts.join(', ')}`;
+      modelStatusEl.className = 'text-success';
+      modelStatusEl.style.fontSize = '11px';
+    }
+  }
 }
 
 function switchTab(name) {
@@ -801,10 +945,17 @@ function doParse() {
   const btn = document.getElementById('btn-parse');
   btn.disabled = true;
   document.getElementById('parse-status').textContent = '';
-  appendLog('--- Starting parse pipeline ---');
+  const dateFrom = document.getElementById('parse-date-from').value;
+  const dateTo   = document.getElementById('parse-date-to').value;
+  const filterMsg = (dateFrom || dateTo)
+    ? ` [cutoff: ${dateFrom || '…'} → ${dateTo || '…'}]`
+    : '';
+  appendLog('--- Starting parse pipeline' + filterMsg + ' ---');
   streamSSE('/api/parse', {
-    season: currentSeason,
-    gender: currentGender,
+    season:    currentSeason,
+    gender:    currentGender,
+    date_from: dateFrom || null,
+    date_to:   dateTo   || null,
   }, (ok) => {
     btn.disabled = false;
     const status = document.getElementById('parse-status');
@@ -1010,7 +1161,7 @@ async function loadAthletes() {
 
 // Canonical event order: individual (by stroke/dist), diving, relay splits (by stroke/dist)
 const ORDERED_EVENTS = [
-  '50 Yard Freestyle','100 Yard Freestyle','200 Yard Freestyle','500 Yard Freestyle','1000 Yard Freestyle','1650 Yard Freestyle',
+  '50 Yard Freestyle','100 Yard Freestyle','200 Yard Freestyle','500 Yard Freestyle','1650 Yard Freestyle',
   '100 Yard Butterfly','200 Yard Butterfly',
   '50 Yard Backstroke','100 Yard Backstroke','200 Yard Backstroke',
   '100 Yard Breaststroke','200 Yard Breaststroke',
@@ -1226,6 +1377,27 @@ function exportFile(fmt) {
 // ============================================================
 // Step 3 — Model
 // ============================================================
+const modelLogPanel = () => document.getElementById('model-log-panel');
+
+function appendModelLog(line, cls) {
+  const panel = modelLogPanel();
+  if (panel.dataset.fresh !== 'true') {
+    panel.textContent = '';
+    panel.dataset.fresh = 'true';
+  }
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = line + '\n';
+  panel.appendChild(span);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function clearModelLog() {
+  const panel = modelLogPanel();
+  panel.textContent = 'Log cleared.\n';
+  panel.dataset.fresh = 'true';
+}
+
 async function runModel() {
   const btn    = document.getElementById('btn-run-model');
   const status = document.getElementById('model-status');
@@ -1233,30 +1405,251 @@ async function runModel() {
   status.textContent = 'Running…';
   status.className   = 'text-muted';
 
+  const homeTeam = document.getElementById('model-home-team').value;
+  const solver   = document.getElementById('model-solver').value.trim() || 'gurobi';
+
+  appendModelLog(`--- Starting model: ${homeTeam} (${currentGender}, ${currentSeason}) ---`);
+
   const resp = await fetch('/api/model/run', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      season:      currentSeason,
-      gender:      currentGender,
-      fatigue:     parseFloat(document.getElementById('fatigue-slider').value),
-      max_events:  parseInt(document.getElementById('max-events').value),
+      season:    currentSeason,
+      gender:    currentGender,
+      home_team: homeTeam,
+      solver:    solver,
     }),
   });
-  btn.disabled = false;
-  if (resp.ok) {
-    const j = await resp.json();
-    if (j.status === 'not_implemented') {
-      status.textContent = '⚠ Coming soon — model not yet implemented';
-      status.className   = 'text-muted';
-    } else {
-      status.textContent = '✓ Model complete';
-      status.className   = 'text-success';
-    }
-  } else {
+
+  if (!resp.ok) {
+    const txt = await resp.text();
+    appendModelLog('HTTP ' + resp.status + ': ' + txt, 'log-error');
+    btn.disabled = false;
     status.textContent = '✗ Error ' + resp.status;
-    status.className   = 'text-error';
+    status.className = 'text-error';
+    return;
   }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, {stream: true});
+    const parts = buf.split('\n\n');
+    buf = parts.pop();
+    for (const part of parts) {
+      if (!part.startsWith('data: ')) continue;
+      const line = part.slice(6);
+      if (line === '__DONE__') {
+        appendModelLog('✓ Model run complete.', 'log-done');
+        btn.disabled = false;
+        status.textContent = '✓ Done — see Lineup tab';
+        status.className = 'text-success';
+        checkDataStatus();
+        return;
+      }
+      appendModelLog(line, classifyLine(line));
+    }
+  }
+  btn.disabled = false;
+}
+
+// ============================================================
+// Step 4 — Lineup
+// ============================================================
+async function loadLineup() {
+  const showCard = id => document.getElementById(id).style.display = '';
+  const hideCard = id => document.getElementById(id).style.display = 'none';
+
+  hideCard('lineup-summary-card');
+  hideCard('lineup-solo-card');
+  hideCard('lineup-relay-card');
+  hideCard('lineup-scorers-card');
+  hideCard('lineup-empty');
+
+  const resp = await fetch(
+    `/api/lineup?season=${encodeURIComponent(currentSeason)}&gender=${encodeURIComponent(currentGender)}`
+  );
+  if (!resp.ok) {
+    showCard('lineup-empty');
+    return;
+  }
+  const data = await resp.json();
+
+  // Summary
+  document.getElementById('lu-home-team').textContent = data.home_team || '';
+  document.getElementById('lu-objective').textContent =
+    data.objective != null ? data.objective + ' pts' : '—';
+  const statusEl = document.getElementById('lu-status');
+  statusEl.textContent = data.status || '';
+  statusEl.className = data.status === 'solved' ? 'text-success' : 'text-error';
+  showCard('lineup-summary-card');
+
+  // Solo grid — build both views
+  if (data.solo && data.solo.length > 0) {
+    // Event-first: one box per event, athletes inside sorted by place
+    const eventMap = {};
+    for (const r of data.solo) {
+      if (!eventMap[r.event]) eventMap[r.event] = [];
+      eventMap[r.event].push(r);
+    }
+    const eventKeys = Object.keys(eventMap).sort();
+    document.getElementById('solo-grid-event').innerHTML = eventKeys.map(evt => {
+      const rows = eventMap[evt].sort((a,b) => (a.place||99)-(b.place||99));
+      const rowsHtml = rows.map(r => `
+        <div class="solo-box-row">
+          <span>${esc(r.athlete)}</span>
+          <span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+            ${r.time ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;">${esc(r.time)}</span>` : ''}
+            <span class="solo-box-place place-${r.place}">${r.place != null ? placeOrdinal(r.place) : '—'}</span>
+          </span>
+        </div>`).join('');
+      return `<div class="solo-box"><div class="solo-box-title">${esc(evt)}</div>${rowsHtml}</div>`;
+    }).join('');
+
+    // Athlete-first: one box per athlete, events inside sorted by place
+    const athleteMap = {};
+    for (const r of data.solo) {
+      if (!athleteMap[r.athlete]) athleteMap[r.athlete] = [];
+      athleteMap[r.athlete].push(r);
+    }
+    const athleteKeys = Object.keys(athleteMap).sort();
+    document.getElementById('solo-grid-athlete').innerHTML = athleteKeys.map(ath => {
+      const rows = athleteMap[ath].sort((a,b) => (a.place||99)-(b.place||99));
+      const rowsHtml = rows.map(r => `
+        <div class="solo-box-row">
+          <span>${esc(r.event)}</span>
+          <span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+            ${r.time ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;">${esc(r.time)}</span>` : ''}
+            <span class="solo-box-place place-${r.place}">${r.place != null ? placeOrdinal(r.place) : '—'}</span>
+          </span>
+        </div>`).join('');
+      return `<div class="solo-box"><div class="solo-box-title">${esc(ath)}</div>${rowsHtml}</div>`;
+    }).join('');
+
+    showCard('lineup-solo-card');
+  }
+
+  // Relay grid — freestyle and medley combined, one box per event, A/B columns
+  const allRelays = [...(data.relay||[]), ...(data.medley||[])];
+  if (allRelays.length > 0) {
+    // Group by event name, collect A and B heat entries
+    const relayMap = {};
+    for (const r of allRelays) {
+      if (!relayMap[r.event]) relayMap[r.event] = {};
+      relayMap[r.event][r.level] = r;
+    }
+    // Canonical event order: freestyle first, then medley
+    const RELAY_ORDER = [
+      '200 Free Relay (4×50)', '400 Free Relay (4×100)', '800 Free Relay (4×200)',
+      '200 Medley Relay', '400 Medley Relay',
+    ];
+    const relayKeys = RELAY_ORDER.filter(e => relayMap[e])
+      .concat(Object.keys(relayMap).filter(e => !RELAY_ORDER.includes(e)).sort());
+
+    document.getElementById('relay-grid').innerHTML = relayKeys.map(evt => {
+      const heats = relayMap[evt];
+      const isMedley = evt.includes('Medley');
+      const STROKES = ['Back', 'Breast', 'Fly', 'Free'];
+
+      const heatHtml = ['A', 'B'].map(level => {
+        const h = heats[level];
+        if (!h) return `<div class="relay-heat" style="opacity:.35;">
+          <div class="relay-heat-header">
+            <span class="relay-heat-label">${level} Final</span>
+          </div>
+          <div style="font-size:11px;color:#9ca3af;">Not entered</div>
+        </div>`;
+
+        const placeHtml = h.place != null
+          ? `<span class="solo-box-place place-${h.place}">${placeOrdinal(h.place)}</span>`
+          : '';
+
+        const legTimes = h.leg_times || {};
+
+        let athletesHtml;
+        if (isMedley) {
+          const aths = h.athletes || {};
+          athletesHtml = STROKES.map(s => {
+            const ath = aths[s] || '—';
+            const t = legTimes[s] || '';
+            return `<div class="relay-athlete-row">
+              <span class="relay-stroke-label">${s}</span>
+              <span style="flex:1;">${esc(ath)}</span>
+              ${t ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(t)}</span>` : ''}
+            </div>`;
+          }).join('');
+        } else {
+          athletesHtml = (h.athletes || []).map(a => {
+            const t = legTimes[a] || '';
+            return `<div class="relay-athlete-row">
+              <span style="flex:1;">${esc(a)}</span>
+              ${t ? `<span style="font-family:monospace;font-size:11px;color:#6b7280;flex-shrink:0;">${esc(t)}</span>` : ''}
+            </div>`;
+          }).join('');
+        }
+
+        const totalHtml = h.total_time
+          ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:11px;">
+               <span style="color:#6b7280;font-weight:600;">Total</span>
+               <span style="font-family:monospace;font-weight:700;color:#374151;">${esc(h.total_time)}</span>
+             </div>`
+          : '';
+
+        return `<div class="relay-heat">
+          <div class="relay-heat-header">
+            <span class="relay-heat-label">${level} Final</span>
+            ${placeHtml}
+          </div>
+          ${athletesHtml}
+          ${totalHtml}
+        </div>`;
+      }).join('');
+
+      return `<div class="relay-box">
+        <div class="relay-box-title">${esc(evt)}</div>
+        <div class="relay-heats">${heatHtml}</div>
+      </div>`;
+    }).join('');
+
+    showCard('lineup-relay-card');
+  }
+
+  // Scorers (shown first — rendered before solo/relay/medley)
+  if (data.scorers && data.scorers.length > 0) {
+    const el = document.getElementById('lineup-scorers-list');
+    const countEl = document.getElementById('lineup-scorers-count');
+    countEl.textContent = `${data.scorers.length} athletes`;
+    el.innerHTML = data.scorers.map(s =>
+      `<span style="background:#f0f2f5;border:1px solid #e5e7eb;border-radius:4px;padding:3px 10px;font-size:12px;">${esc(s)}</span>`
+    ).join('');
+    showCard('lineup-scorers-card');
+  }
+
+  if (!data.solo?.length && !allRelays.length) {
+    showCard('lineup-empty');
+  }
+}
+
+function switchSoloTab(view) {
+  document.getElementById('solo-tab-event').classList.toggle('active', view === 'event');
+  document.getElementById('solo-tab-athlete').classList.toggle('active', view === 'athlete');
+  document.getElementById('solo-view-event').classList.toggle('active', view === 'event');
+  document.getElementById('solo-view-athlete').classList.toggle('active', view === 'athlete');
+}
+
+function placeOrdinal(n) {
+  if (n == null) return '—';
+  const s = ['th','st','nd','rd'];
+  const v = n % 100;
+  return n + (s[(v-20)%10] || s[v] || s[0]);
+}
+
+function exportLineupCsv() {
+  const url = `/api/lineup/export/csv?season=${encodeURIComponent(currentSeason)}&gender=${encodeURIComponent(currentGender)}`;
+  window.location.href = url;
 }
 
 // ============================================================
@@ -1267,5 +1660,8 @@ document.addEventListener('DOMContentLoaded', () => {
   checkDataStatus();
 });
 </script>
+<footer style="text-align:center;padding:18px 0 14px;font-size:12px;color:#888;">
+  Developed by the MuddOR Lab &mdash; Prof. Susan Martonosi, Tyler Headley &amp; Edward Donson
+</footer>
 </body>
 </html>
