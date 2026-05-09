@@ -12,14 +12,20 @@ python3 main.py --scrape   →  data/<season>/pdfs/*.pdf
 python3 main.py --parse    →  data/<season>/results.json
                                data/<season>/results.csv
 
-python3 pipeline/process_results.py   →  data/<season>/event_rankings_<gender>.json
-                                          data/<season>/athlete_profiles_<gender>.json
+python3 pipeline/process_results.py --season X --gender Men|Women \
+        [--date-from YYYY-MM-DD] [--date-to YYYY-MM-DD]
+                           →  data/<season>/event_rankings_<gender>.json
+                               data/<season>/athlete_profiles_<gender>.json
 
-python3 pipeline/best_performances.py →  data/<season>/best_performances_<gender>.json
+python3 pipeline/best_performances.py --season X --gender Men|Women
+                           →  data/<season>/best_performances_<gender>.json
 
-python3 pipeline/ampl_export.py       →  data/<season>/best_performances_<gender>.dat
+python3 pipeline/ampl_export.py --season X --gender Men|Women \
+        [--home-team 'Team Name']
+                           →  data/<season>/best_performances_<gender>.dat
 
-python3 pipeline/data_quality.py      →  console report  (+ optional JSON)
+python3 pipeline/data_quality.py --season X  [--json]
+                           →  console report  (+ optional JSON)
 ```
 
 Every script accepts `--season YYYY-YY`. Gender-specific scripts also accept `--gender Men` or `--gender Women`.
@@ -137,11 +143,14 @@ Reads `results.json` and produces per-event rankings and per-athlete profiles.
 2. Max score < 200 → 6-dive.
 3. Ambiguous 200–450 → fit a 2-component GMM on all (meet, board) max scores (optionally augmented via `--aux-seasons`). Requires `scikit-learn`; falls back to a midpoint rule if not installed.
 
+**Date range filtering.** `--date-from` and `--date-to` (both optional, `YYYY-MM-DD`) filter results to meets whose start date falls within the range. Multi-day meets use their start date. Useful for simulating what data would have been available before a given point — for example, `--date-to 2026-02-17` to exclude SCIAC championships.
+
 **Outputs:** `event_rankings_<gender>.json` and `athlete_profiles_<gender>.json`.
 
 ```
 python3 pipeline/process_results.py --season 2025-26 --gender Men
 python3 pipeline/process_results.py --season 2025-26 --gender Women --aux-seasons 2024-25
+python3 pipeline/process_results.py --season 2025-26 --gender Men --date-to 2026-02-17
 ```
 
 ---
@@ -160,19 +169,30 @@ python3 pipeline/best_performances.py --season 2025-26 --gender Men
 
 ### `ampl_export.py`
 
-Converts `best_performances_<gender>.json` into AMPL `.dat` format for the optimisation model.
+Converts `best_performances_<gender>.json` into AMPL `.dat` format for `model/Swimplex_time.mod`.
 
-**Sets and parameters:**
+**Event sets (AMPL short ids → JSON event name):**
 
-- `IND_EVENTS` — 13 individual events.
-- `RELAY_EVENTS` — 8 relay-split events (leadoff and exchange legs treated separately).
-- `ATHLETES` — all swimmers of type `swimmer`; divers are excluded.
-- `param times` — athletes × events matrix of times in seconds. Missing entries receive a sentinel value (default `9999.0`).
+- **`SoloEvents`** (13): `free50`, `free100`, `free200`, `free500`, `free1650`, `back100`, `back200`, `breast100`, `breast200`, `fly100`, `fly200`, `im200`, `im400`
+- **`RelayEvents`** (3 freestyle): `FR200` (4×50), `FR400` (4×100), `FR800` (4×200) — use leg split times
+- **`MedleyEvents`** (2): `MED200` (4×50 medley) and `MED400` (4×100 medley) — use per-stroke split times. `MED200` uses 50-yard stroke splits; `MED400` uses 100-yard splits (`100 Yard Backstroke` individual time is used as the back-leg proxy for `MED400` since no relay split is tracked separately for that leg).
+- **`DivingEvents`** (2): `dive1m`, `dive3m`
 
-AMPL identifiers use short names without spaces: `free100`, `relay_back50`, etc.
+**Athletes.** All athletes in `best_performances_<gender>.json` belonging to a SCIAC team are included — swimmers, divers, and hybrids alike. The `--home-team` flag sets which team the model optimises for (default: `Claremont-Mudd-Scripps`).
+
+**Parameters:**
+
+- `solo_time {Athletes, SoloEvents}` — seconds; sentinel `9999` for missing times (higher is worse, so missing athletes never score).
+- `leg_time {Athletes, RelayEvents}` — individual leg split in seconds; same sentinel.
+- `leg_time_med {Athletes, MedleyEvents, Stroke}` — medley leg split per stroke; same sentinel.
+- `diving_score {Athletes, DivingEvents}` — raw score (higher = better); sentinel `0.0` for no score.
+- `solo_points {Place}` — SCIAC individual scoring: 20/17/16/…/1 for places 1–16; `1/rank` heuristic for places 17+.
+- `relay_points {Place_Relay, Level}` — 2× the corresponding individual points. A heat (overall places 1–9); B heat (overall places 10–18).
+- `relay_enroll_ct = 4`, `home_team` (symbolic).
 
 ```
 python3 pipeline/ampl_export.py --season 2025-26 --gender Men
+python3 pipeline/ampl_export.py --season 2025-26 --gender Women --home-team 'Pomona-Pitzer'
 ```
 
 ---

@@ -1,6 +1,8 @@
-# Swimplex Web App
+# Swimplex — Web App
 
-A single-page Flask coach UI that wraps the data pipeline and lets you browse, edit, and export SCIAC swimming best times without touching the command line.
+A single-page Flask coach UI that wraps the data pipeline and optimisation model. No build step, no JS framework, no bundler — one Python file (`app.py`) and one HTML file (`templates/index.html`).
+
+---
 
 ## Running
 
@@ -9,56 +11,72 @@ python3 web/app.py
 # open http://localhost:5001
 ```
 
-Set `PORT` to change the port. The app runs in Flask debug mode locally, so it auto-reloads on code changes.
+Set the `PORT` environment variable to override the default. The app runs with Flask's built-in server in debug/threaded mode, so it auto-reloads on code changes during development.
 
-## Architecture overview
+---
 
-The backend is a single file (`app.py`) that imports and calls pipeline modules directly — no subprocesses. The frontend is a single HTML page (`templates/index.html`) that communicates with the backend through JSON and SSE endpoints. There's no build step, no bundler, no JS framework.
+## Architecture
+
+The frontend is a single HTML page that communicates with the backend through JSON endpoints and Server-Sent Events (SSE). The backend imports pipeline modules in-process for fast operations (data loading, edits, exports), and spawns a subprocess for the optimisation model (see caveat below).
 
 ### Step 1 — Scrape & Parse
 
-Hitting the Scrape or Parse buttons fires a POST request that starts the respective pipeline function in a background thread. The page receives live log output via **Server-Sent Events**: `app.py` redirects both `sys.stdout` and the Python logging root handler into a `queue.Queue`, and the SSE response drains that queue line-by-line until a sentinel signals completion. This is why you see live progress in the browser even though scraping and parsing can take a while.
+The Scrape and Parse buttons each fire a POST that runs the corresponding pipeline function in a **background thread**. Live output reaches the browser via SSE: `app.py` redirects `sys.stdout` and the Python logging root handler into a `queue.Queue` via `_QueueWriter` and `_QueueHandler`; the SSE response generator drains that queue line-by-line, yielding each line as a `data:` event until a sentinel signals completion.
 
-A status hint under each button tells you how many PDFs are already downloaded and when results were last parsed, so you don't re-scrape unnecessarily. This comes from the `/api/data-status` endpoint, which just checks file mtimes.
+The `_PIPELINE_LOCK` ensures that only one parse pipeline runs at a time (since `process_results.py` and `best_performances.py` patch `sys.argv` to simulate CLI invocation).
 
-### Step 2 — Best Times
+The `/api/data-status` endpoint checks file mtimes and PDF counts so the UI can show when data was last updated without re-running anything.
 
-The best times tab shows one row per athlete-event combination, sourced from `best_performances_<gender>.json`. Three layers of per-session overrides sit on top of the raw data:
+### Step 2 — Data Review
 
-- **Edit** — changes a time for a specific athlete-event. Stored in `edits_<gender>.json` as `{"action": "edit", "time": "..."}`.
-- **Discard** — hides a row entirely (e.g. a mis-parsed entry you don't want in the model). Stored as `{"action": "discard"}` in the same file.
-- **Restore** — removes the override and reverts to the scraped value.
-- **Manual additions** — times your coach knows about that aren't in any scraped PDF. Stored separately in `manual_additions_<gender>.json` so they survive re-parses without getting clobbered. These rows display a `[M]` badge and have a yellow background.
+`/api/athletes` serves rows from `best_performances_<gender>.json` merged with two override layers via `_build_athlete_rows()`:
 
-The `_build_athlete_rows()` helper in `app.py` merges all three sources every time the page loads. Edits and discards apply equally to scraped and manually added rows.
+- **`edits_<gender>.json`** — keyed by athlete name → event. Values are `{"action": "edit", "time": "..."}` or `{"action": "discard"}`. Discarded rows are dropped; edits replace the scraped best time.
+- **`manual_additions_<gender>.json`** — athlete entries added by the coach that have no scraped counterpart. Same structure as the best_performances swimmers dict. Manual rows that are also in the scraped data are skipped (scraped takes precedence).
 
-The event filter dropdown uses a fixed canonical ordering (freestyle by distance → butterfly → backstroke → breaststroke → IM → diving → relay splits) rather than alphabetical, because alphabetical order mixes strokes together in a confusing way for coaching use.
+Edits and discards apply to both scraped and manually added rows. The merge happens on every request — no caching.
 
-### Step 2 — Data Quality
+The data quality tab calls `data_quality.build_report()` directly and filters out already-resolved issues using `quality_resolutions.json`. Edit and Accept Fix resolutions also propagate into `edits_<gender>.json` so the corrected time appears immediately on the Best Times tab.
 
-The data quality tab calls `data_quality.build_report()` from the pipeline and displays the results grouped by issue category. Issues can be resolved in-browser with three actions:
+### Step 3 — Model
 
-- **Accept Fix** — accepts the auto-corrected value that `_clean_raw` would have applied.
-- **Edit** — lets you type the correct value manually.
-- **Discard** — marks the entry as reviewed and removes it from future reports.
+`/api/model/run` launches `model/run_iterative.py` as a **subprocess** via `subprocess.Popen`, streaming its combined stdout/stderr line-by-line as SSE events. The endpoint first checks that the `.dat` file exists for the requested season and gender; if it doesn't, it returns an error event immediately without spawning a process.
 
-Resolutions are written to `quality_resolutions.json`. Edit and Accept Fix resolutions also propagate into `edits_<gender>.json` so the corrected time shows up immediately on the Best Times tab. On subsequent loads, resolved issues are filtered out of the quality report.
+**Why subprocess and not in-process threading?** Gurobi's C library calls `abort()` when initialised from a non-main thread, which kills the Flask process with SIGABRT. Running `run_iterative.py` as a child process sidesteps this entirely — Gurobi sees a clean main thread.
 
-### Export
+Parameters passed to the subprocess:
 
-The export buttons produce CSV or JSON from the same `_build_athlete_rows()` function the best-times tab uses, so edits and manual additions are always included.
+| CLI flag | Source |
+|----------|--------|
+| `--season`, `--gender` | POST body |
+| `--solver` | POST body (default `gurobi`) |
+| `--mip-gap` | POST body (default `0.0`) |
+| `--time-limit` | POST body (omitted if not set) |
+| `--br-teams` | POST body (space-separated list) |
+| `--skip-pipeline` | always set (pipeline already ran in Step 1) |
+
+### Step 4 — Lineup
+
+`/api/lineup` reads `model_results_<gender>.json` written by `run_iterative.py` and reshapes it for the UI:
+
+- **Scoreboard** — built from `greedy_scores` and `optimized_scores` dicts in the results file. Teams are sorted by optimized score descending.
+- **Per-team rosters** — pulled from `optimized_rosters`. Each athlete's assigned events are enriched with their seed time or diving score looked up from `best_performances_<gender>.json`.
+- **Relay rows** — built by `_build_relay_rows()` from `optimized_relays`. Leg times are looked up from `best_performances_<gender>.json` using the same event-key mapping as `ampl_export.py`. Projected total relay times are computed by summing the four leg times.
+
+---
 
 ## Persistence files
 
-All files live under `data/<season>/`:
+All files live under `data/<season>/` and survive pipeline re-runs:
 
-| File | Purpose |
-|------|---------|
-| `edits_<gender>.json` | Coach time edits and discards |
-| `manual_additions_<gender>.json` | Manually added athlete entries |
-| `quality_resolutions.json` | Resolved data quality flags |
+| File | Written by | Purpose |
+|------|-----------|---------|
+| `edits_<gender>.json` | web app | Coach time overrides and discards |
+| `manual_additions_<gender>.json` | web app | Manually added athlete entries |
+| `quality_resolutions.json` | web app | Resolved data quality flags |
+| `model_results_<gender>.json` | `run_iterative.py` | Optimisation output (scores + rosters + relays) |
 
-These files are intentionally separate from the pipeline outputs so that re-running the scrape/parse pipeline never overwrites coach edits.
+---
 
 ## API reference
 
@@ -66,14 +84,29 @@ These files are intentionally separate from the pipeline outputs so that re-runn
 |--------|------|-------------|
 | GET | `/` | Serves the UI |
 | POST | `/api/scrape` | Scrape PDFs; body `{season, start, end}`; SSE stream |
-| POST | `/api/parse` | Parse + process pipeline; body `{season, gender}`; SSE stream |
-| GET | `/api/data-status` | PDF count + parse timestamps for a season |
-| GET | `/api/athletes` | Best times rows; params `season`, `gender` |
-| POST | `/api/athletes/edit` | Override a best time |
-| POST | `/api/athletes/discard` | Hide an entry |
-| POST | `/api/athletes/restore` | Remove an override |
-| POST | `/api/athletes/add` | Add a manual entry |
-| GET | `/api/quality` | Data quality report (resolved items filtered out) |
-| POST | `/api/quality/resolve` | Resolve a quality flag |
-| GET | `/api/export/csv` | Download best times as CSV |
-| GET | `/api/export/json` | Download best times as JSON |
+| POST | `/api/parse` | Parse + process pipeline; body `{season, gender, date_from, date_to}`; SSE stream |
+| GET | `/api/data-status` | PDF count + parse/model result timestamps; param `season` |
+| GET | `/api/athletes` | Best times rows merged with edits + manual additions; params `season`, `gender` |
+| POST | `/api/athletes/edit` | Override a best time; body `{season, gender, name, event, time}` |
+| POST | `/api/athletes/discard` | Hide an entry; body `{season, gender, name, event}` |
+| POST | `/api/athletes/restore` | Remove an override; body `{season, gender, name, event}` |
+| POST | `/api/athletes/add` | Add a manual entry; body `{season, gender, name, school, age, event, best, meet, date}` |
+| GET | `/api/quality` | Data quality report with resolved items filtered out; param `season` |
+| POST | `/api/quality/resolve` | Resolve a quality flag; body `{season, gender, name, event, value, pdf, action, corrected_time}` |
+| GET | `/api/export/csv` | Best times as CSV (edits + manual additions included); params `season`, `gender` |
+| GET | `/api/export/json` | Best times as JSON; params `season`, `gender` |
+| POST | `/api/model/run` | Run optimisation model as subprocess; body `{season, gender, solver, mip_gap, time_limit, br_teams}`; SSE stream |
+| GET | `/api/lineup` | Optimised lineup + scoreboard; params `season`, `gender` |
+| GET | `/api/lineup/export/csv` | Scoreboard + all-team rosters as CSV; params `season`, `gender` |
+
+---
+
+## Technical caveats
+
+**Gurobi and threading.** The model must run as a subprocess, not in a thread. Gurobi's C library aborts the process if it is initialised from any thread other than the main thread. Attempting to call `run_iterative.py` via `runpy` or `importlib` inside a Flask request thread will crash the server with SIGABRT.
+
+**`sys.argv` patching.** The pipeline wrappers for `process_results.py` and `best_performances.py` patch `sys.argv` before calling `main()`, then restore it in a `finally` block. This is why `_PIPELINE_LOCK` exists — concurrent parse requests would race on `sys.argv`.
+
+**SSE and proxies.** If the app is deployed behind a reverse proxy (nginx, etc.), SSE streaming requires `X-Accel-Buffering: no` and `Cache-Control: no-cache` response headers, which are already set. Without them, the proxy buffers the response and the live log won't appear until the request completes.
+
+**Debug mode.** Flask runs with `debug=True`, which means the Werkzeug reloader forks the process. If AMPL or Gurobi licenses are tied to a process ID, the reloader fork may cause license errors. Disable with `FLASK_DEBUG=0` if this is an issue.
